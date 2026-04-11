@@ -1,0 +1,6 @@
+README.md
+setup.py
+dpsnn.egg-info/PKG-INFO
+dpsnn.egg-info/SOURCES.txt
+dpsnn.egg-info/dependency_links.txt
+dpsnn.egg-info/top_level.txt
