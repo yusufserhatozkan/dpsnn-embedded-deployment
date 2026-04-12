@@ -10,7 +10,7 @@
 - Date: 2026-04-12
 - Checkpoint: egs/voicebank/epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt
 - Params: N=256, B=256, H=256, L=80, stride=40, context_dur=0.01, X=1
-- Status: IN PROGRESS (CPU, ~1 hr for 824 test samples)
+- Status: **COMPLETED** (CPU, 28 min, 824/824 samples)
 
 ### Command Used
 ```bash
@@ -22,20 +22,23 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
     --test_ckpt_path ./epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt
 ```
 
-### Desktop Baseline Metrics (Pretrained)
+### Desktop Baseline Metrics (Pretrained, full 824-sample test set)
 | Metric | Noisy (input) | Enhanced | Clean (reference) |
 |--------|--------------|---------|------------------|
-| SI-SNR (dB) | 10.44 | 20.53 | — |
-| PESQ (wb) | 2.46 | 2.63 | 4.64 |
-| STOI | 0.937 | 0.939 | 1.00 |
+| SI-SNR (dB) | 8.44 | **18.08** | — |
+| PESQ (wb) | 1.97 | **2.26** | 4.64 |
+| STOI | 0.921 | **0.925** | 1.00 |
 
-*Note: Early partial result (~5 of 824 samples). Final metrics pending.*
-
-### Composite Scores (partial, 5 samples)
+### Composite Scores (full test set)
 | | PESQ | OVRL | SIG | BAK |
 |---|---|---|---|---|
-| Noisy | 2.46 | 3.17 | 3.90 | 2.95 |
-| Enhanced | 2.63 | 3.25 | 3.87 | 2.44 |
+| Noisy | 1.97 | 2.64 | 3.36 | 2.45 |
+| Enhanced | 2.26 | 2.80 | 3.37 | 2.25 |
+
+### Spiking Efficiency
+- Total FLOPs: 296,915,968
+- Spike event fire rates: 0.463 / 0.169 / 0.138 / 0.079 (by module)
+- Effective SynOPS: 61.5M ops/s (vs 296.9M FLOPs = 79% savings from sparsity)
 
 ### Issues Fixed
 - `data_folder` in vctk.yaml: `./voicebank` → `../../data`
