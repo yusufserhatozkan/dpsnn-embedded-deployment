@@ -6,4 +6,7 @@ __pycache__/
 .ipynb_checkpoints/
 results/enhanced/
 results/audio/
+results/train_*_log.txt
 /docs/superpowers
+egs/voicebank/lightning_logs/
+export/*.onnx
