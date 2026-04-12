@@ -268,7 +268,7 @@ class StreamSpikeNet(pl.LightningModule):
 
                 local_time_step = feature_step - self.X * self.context_step
                 x = self.srnn_readout(x, local_time_step)  # (b, B)
-                readout_events = x = torch.where(x > self.readout_threshold, x, 0.0)  # (b, B)
+                readout_events = x = torch.where(x > self.readout_threshold, x, torch.zeros_like(x))  # (b, B)
                 count = (torch.abs(x) > 0).to(x.dtype)
                 readout_event_counts.append(count)
                 x = torch.unsqueeze(x, dim=2)  # (b, B, 1)
@@ -282,11 +282,16 @@ class StreamSpikeNet(pl.LightningModule):
                 x = self.decoder_1d(x)  # (b, 1, L)
                 enhanced_step = torch.squeeze(x, dim=1)  # (b, L)
                 enhanced_steps.append(enhanced_step)
-        enhanced_x = torch.stack(enhanced_steps, dim=2)  # (b, L, time_steps)
         output_size = (self.time_steps - 1) * self.stride + self.L
-        # overlap-add in deconv
-        fold = nn.Fold((1, output_size), kernel_size=(1, self.L), stride=(1, self.stride))
-        enhanced_x = torch.squeeze(fold(enhanced_x))  # (b, output_size)
+        # Overlap-add reconstruction — equivalent to nn.Fold but using F.pad + sum
+        # so it maps to standard ONNX ops (no aten::col2im).
+        padded_frames = []
+        for t in range(self.time_steps):
+            frame = enhanced_steps[t]  # (b, L)
+            left = t * self.stride
+            right = output_size - left - self.L
+            padded_frames.append(torch.nn.functional.pad(frame, (left, right)))
+        enhanced_x = sum(padded_frames)  # (b, output_size)
 
         event_rates = []
         # encoder_rate = torch.mean(torch.concat(encoder_event_counts))

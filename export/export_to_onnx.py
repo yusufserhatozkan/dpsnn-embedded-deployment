@@ -72,6 +72,8 @@ def export_model(
     if parent:
         os.makedirs(parent, exist_ok=True)
 
+    # Note: dynamo=False is the default in PyTorch 2.1.0 (the param was added later).
+    # Do NOT pass dynamo=True — it triggers onnxscript import errors on this version.
     torch.onnx.export(
         wrapper,
         dummy_input,
@@ -79,7 +81,6 @@ def export_model(
         input_names=["noisy_audio"],
         output_names=["enhanced_audio"],
         opset_version=opset_version,
-        dynamo=False,
         dynamic_axes={
             "noisy_audio":    {0: "batch_size"},
             "enhanced_audio": {0: "batch_size"},
