@@ -1,9 +1,20 @@
-"""ONNX export utilities for StreamSpikeNet.
+"""ONNX export utilities for StreamSpikeNet and ConvTasNet.
 
 Usage (from repo root):
+    # DPSNN pretrained (N=256)
     python export/export_to_onnx.py \\
         --ckpt_path egs/voicebank/epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt \\
         --output_path export/dpsnn_pretrained.onnx
+
+    # DPSNN simplified after training (scnn_only, N=128 — hparams loaded from ckpt)
+    python export/export_to_onnx.py \\
+        --ckpt_path egs/voicebank/<scnn_ckpt>.ckpt \\
+        --output_path export/dpsnn_scnn128.onnx
+
+    # Conv-TasNet (hparams loaded from ckpt)
+    python export/export_to_onnx.py \\
+        --ckpt_path egs/voicebank/<convtasnet_ckpt>.ckpt \\
+        --output_path export/convtasnet_48.onnx --model convtasnet
 """
 from __future__ import annotations
 
@@ -20,17 +31,17 @@ from dpsnn.models.dp_binary_net import StreamSpikeNet
 
 
 class ExportWrapper(nn.Module):
-    """Thin wrapper exposing StreamSpikeNet with a single-tensor interface.
+    """Single-tensor interface around StreamSpikeNet or ConvTasNet.
 
-    StreamSpikeNet.forward() expects a nested batch tuple; only noisy_x is
-    used in the computation. This wrapper accepts only noisy_x, builds the
-    required tuple internally, and returns enhanced audio as a 2-D tensor
-    (batch, output_len) regardless of how squeeze behaves inside the model.
+    Both models expect a nested batch tuple; only noisy_x is used in the
+    computation. This wrapper accepts only noisy_x, builds the required
+    tuple internally, and returns enhanced audio as a 2-D tensor
+    (batch, output_len).
     """
 
-    def __init__(self, spike_net: StreamSpikeNet) -> None:
+    def __init__(self, model: nn.Module) -> None:
         super().__init__()
-        self.spike_net = spike_net
+        self.model = model
 
     def forward(self, noisy_x: torch.Tensor) -> torch.Tensor:
         """
@@ -44,18 +55,24 @@ class ExportWrapper(nn.Module):
         inputs = (dummy_id, noisy_x, dummy_len)
         dummy_targets = (dummy_id, torch.zeros_like(noisy_x), dummy_len)
 
-        enhanced, _, _, _ = self.spike_net((inputs, dummy_targets))
-
-        # Reshape to (batch, output_len) — squeeze inside the model removes dims
-        # inconsistently depending on batch size, so we normalise here.
+        enhanced, _, _, _ = self.model((inputs, dummy_targets))
         return enhanced.reshape(noisy_x.shape[0], -1)
 
 
-def load_from_checkpoint(ckpt_path: str) -> StreamSpikeNet:
-    """Load a StreamSpikeNet from a PyTorch Lightning checkpoint."""
+def load_from_checkpoint(ckpt_path: str, model_type: str = "dpsnn") -> nn.Module:
+    """Load a model from a PyTorch Lightning checkpoint.
+
+    model_type: 'dpsnn' (default) or 'convtasnet'
+    """
     ckpt = torch.load(ckpt_path, map_location="cpu")
     hparams = ckpt["hyper_parameters"]
-    model = StreamSpikeNet(**hparams)
+
+    if model_type == "convtasnet":
+        from convtasnet.model import ConvTasNet
+        model = ConvTasNet(**hparams)
+    else:
+        model = StreamSpikeNet(**hparams)
+
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     return model
@@ -91,20 +108,27 @@ def export_model(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Export StreamSpikeNet to ONNX")
+    parser = argparse.ArgumentParser(
+        description="Export StreamSpikeNet or ConvTasNet to ONNX")
     parser.add_argument("--ckpt_path", required=True)
-    parser.add_argument("--output_path", default="export/dpsnn_pretrained.onnx")
+    parser.add_argument("--output_path", default="export/model.onnx")
+    parser.add_argument("--model", default="dpsnn", choices=["dpsnn", "convtasnet"],
+                        help="Model type to load from checkpoint (default: dpsnn)")
     parser.add_argument("--opset", type=int, default=13)
     args = parser.parse_args()
 
     print(f"Loading checkpoint: {args.ckpt_path}")
-    model = load_from_checkpoint(args.ckpt_path)
-    print(f"Model: input_dim={model.hparams['input_dim']}, "
+    model = load_from_checkpoint(args.ckpt_path, model_type=args.model)
+
+    input_dim = model.hparams["input_dim"]
+    print(f"Model: input_dim={input_dim}, "
           f"context_dim={model.hparams['context_dim']}, "
           f"N={model.hparams['N']}, B={model.hparams['B']}, H={model.hparams['H']}")
+    if args.model == "dpsnn":
+        print(f"  scnn_only={model.hparams.get('scnn_only', False)}")
 
     wrapper = ExportWrapper(model)
-    dummy_input = torch.randn(1, model.hparams["input_dim"])
+    dummy_input = torch.randn(1, input_dim)
     print(f"Dummy input shape: {dummy_input.shape}")
 
     print("Attempting ONNX export ...")
