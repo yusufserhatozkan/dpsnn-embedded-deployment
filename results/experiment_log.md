@@ -139,10 +139,12 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 - Actual epoch time: **27:43** (898 batches × 1.85 s/batch). Total estimate: 200 × 27.7 min ≈ 92 hours.
 - Input_dim=8160 (0.5s + 10ms context); 57,472 samples/epoch (random-hop ×5 per file).
 
-### Epoch 0 Checkpoint
-| | val_loss | val_sisnr |
-|---|---|---|
-| Epoch 0 | 94.40 | -5.61 dB |
+### Epoch Progress
+| Epoch | val_loss | val_sisnr | Notes |
+|---|---|---|---|
+| 0 | 94.40 | -5.61 dB | random init |
+| 1 | 94.20 | -5.81 dB | |
+| 2 | — | — | in progress (~35% when log last read) |
 
 ### Results
 *Pending training completion.*

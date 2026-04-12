@@ -4,6 +4,11 @@ Usage (from repo root):
     python export/validate_onnx.py \\
         --ckpt_path egs/voicebank/epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt \\
         --onnx_path export/dpsnn_pretrained.onnx
+
+    # ConvTasNet:
+    python export/validate_onnx.py \\
+        --ckpt_path egs/voicebank/<convtasnet_ckpt>.ckpt \\
+        --onnx_path export/convtasnet_48.onnx --model convtasnet
 """
 from __future__ import annotations
 
@@ -35,11 +40,12 @@ def compare_outputs(pt_output: np.ndarray, ort_output: np.ndarray) -> float:
 def validate(
     ckpt_path: str,
     onnx_path: str,
+    model_type: str = "dpsnn",
     warn_threshold: float = 1e-3,
     fail_threshold: float = 1e-1,
 ) -> bool:
     """Validate an ONNX model numerically against its PyTorch source."""
-    model = load_from_checkpoint(ckpt_path)
+    model = load_from_checkpoint(ckpt_path, model_type=model_type)
     wrapper = ExportWrapper(model)
 
     input_dim = model.hparams["input_dim"]
@@ -68,9 +74,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate ONNX Runtime output against PyTorch checkpoint")
     parser.add_argument("--ckpt_path", required=True)
     parser.add_argument("--onnx_path", required=True)
+    parser.add_argument("--model", default="dpsnn", choices=["dpsnn", "convtasnet"],
+                        help="Model type (default: dpsnn)")
     args = parser.parse_args()
 
-    success = validate(args.ckpt_path, args.onnx_path)
+    success = validate(args.ckpt_path, args.onnx_path, model_type=args.model)
     sys.exit(0 if success else 1)
 
 
