@@ -79,6 +79,7 @@ parser.add_argument('--precision', type=str, required=False, help="16, 32, bf16"
 parser.add_argument('--devices', nargs='+', type=int, default=[0])
 parser.add_argument('--device_num', type=int, required=False)
 parser.add_argument('--random_hops', action='store_false')
+parser.add_argument('--scnn_only', action='store_true', help='SCNN-only variant: skip SRNN in each block')
 
 
 def rank_print(info):
@@ -225,10 +226,9 @@ def start_func():
         train_dataloader = DataLoader(train_dataset,
                                 batch_size=config.batch_size,
                                 shuffle=shuffle,
-                                num_workers=8,
+                                num_workers=0,  # 0 required on Windows — h5py can't be pickled
                                 collate_fn=collate_fn,
-                                worker_init_fn=worker_init_fn,
-                                pin_memory=True)
+                                worker_init_fn=worker_init_fn)
 
 
         # valid_dataset = WaveDataset(
@@ -257,9 +257,8 @@ def start_func():
         valid_dataloader = DataLoader(valid_dataset,
                                 batch_size=config.batch_size,
                                 shuffle=False,
-                                num_workers=8,
-                                worker_init_fn=worker_init_fn,
-                                pin_memory=True)
+                                num_workers=0,  # 0 required on Windows — h5py can't be pickled
+                                worker_init_fn=worker_init_fn)
     
     test_dataset = EvaluationDataset(
         hdf_file=config.hdf5_test,
@@ -518,10 +517,11 @@ def start_func():
            f"Please make sure not to set load_ckpt_path and test_ckpt_path together!")
 
     spike_net = StreamSpikeNet(input_dim, context_dim,
-                        sr=config.sample_rate, 
+                        sr=config.sample_rate,
                         L=args.L, stride=args.stride,
                         N=args.N, B=args.B, H=args.H, X=args.X,
-                        learning_rate=config.optim.lr)
+                        learning_rate=config.optim.lr,
+                        scnn_only=args.scnn_only)
 
     print(spike_net)
     # import torch._dynamo as dynamo

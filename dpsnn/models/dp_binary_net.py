@@ -151,20 +151,21 @@ class StreamSpikeNet(pl.LightningModule):
                 "tau_adp_initial": [200], "tau_adp_initial_std": [50]}
     
     def __init__(self, input_dim, context_dim, sr=16000,
-                 L=20, stride=10, 
+                 L=20, stride=10,
                  N=512, B=256, H=256, X=1,
-                 learning_rate=1e-5, T_max=64):
+                 learning_rate=1e-5, T_max=64,
+                 scnn_only=False):
         super().__init__()
 
         self.save_hyperparameters()
-        
+
         print(f"input_dim: {input_dim}")
         print(f"context_dim: {context_dim}")
         self.context_dim = context_dim
         assert(context_dim % stride == 0)
         self.context_step = context_dim // stride
         rank_zero_info(f"context_step: {self.context_step}")
-       
+
         self.sr = sr
         self.L = L
         self.B = B  # bottleneck
@@ -173,7 +174,8 @@ class StreamSpikeNet(pl.LightningModule):
         assert(H % B == 0)
         self.X = X
         self.stride = stride if stride else  L // 2
-        
+        self.scnn_only = scnn_only
+
         self.feature_steps = (input_dim - L) // (stride) + 1
         self.time_steps = self.feature_steps - self.X * self.context_step
         rank_zero_info(f"time steps: {self.time_steps}")
@@ -186,11 +188,15 @@ class StreamSpikeNet(pl.LightningModule):
         blocks = []
         for _ in range(self.X):
             sconv1d = SpikeConv1d(B, H, self.context_step, "plif", self.plif_config)
-            srnn = SRNN(H, B, "alif", self.alif_config)
-            blocks.append(nn.ModuleList([sconv1d, srnn]))
+            if scnn_only:
+                blocks.append(nn.ModuleList([sconv1d]))
+            else:
+                srnn = SRNN(H, B, "alif", self.alif_config)
+                blocks.append(nn.ModuleList([sconv1d, srnn]))
         self.repeats = nn.ModuleList(blocks)
-        
-        self.srnn_readout = ReadoutLayer(self.X*B, B, "alif", self.alif_config)
+
+        readout_in = self.X * H if scnn_only else self.X * B
+        self.srnn_readout = ReadoutLayer(readout_in, B, "alif", self.alif_config)
         self.readout_threshold = torch.nn.Parameter(torch.tensor(0.0, dtype=torch.float))
         
         self.mask = nn.Conv1d(B, N, 1)
@@ -211,7 +217,8 @@ class StreamSpikeNet(pl.LightningModule):
         context_wins = [None] * self.X
         enhanced_steps = []
         encoder_event_counts, proj_event_counts, readout_event_counts = [], [], []
-        block_event_counts = [[[], []] for _ in range(self.X)]
+        n_modules_per_block = 1 if self.scnn_only else 2
+        block_event_counts = [[[] for _ in range(n_modules_per_block)] for _ in range(self.X)]
 
         for feature_step in range(self.feature_steps):
             input_x = noisy_x[:, feature_step*self.stride:feature_step*self.stride+self.L]  # (b, L)
@@ -252,12 +259,13 @@ class StreamSpikeNet(pl.LightningModule):
 
                     context_wins[block_idx]  = win_w[:, :, 1:]
 
-                    # separator: SRNN
-                    srnn = block[1]
-                    x = srnn(x, local_time_step)  # (b, B)
-                    x = torch.unsqueeze(x, dim=2)  # (b, B, 1)
-                    count = (torch.abs(x) > 0).to(x.dtype)
-                    block_event_counts[block_idx][1].append(count)
+                    if not self.scnn_only:
+                        # separator: SRNN
+                        srnn = block[1]
+                        x = srnn(x, local_time_step)  # (b, B)
+                        x = torch.unsqueeze(x, dim=2)  # (b, B, 1)
+                        count = (torch.abs(x) > 0).to(x.dtype)
+                        block_event_counts[block_idx][1].append(count)
 
                     block_xs.append(x)
             
@@ -425,8 +433,9 @@ class StreamSpikeNet(pl.LightningModule):
 
             scnn_syn_ops = np.prod(block[0].dconv.weight.shape)
             ops["event_syn_ops"].append(scnn_syn_ops)
-            srnn_syn_ops = np.prod(block[1].dense.weight.shape) + np.prod(block[1].recurrent.weight.shape)
-            ops["event_syn_ops"].append(srnn_syn_ops)
+            if not self.scnn_only:
+                srnn_syn_ops = np.prod(block[1].dense.weight.shape) + np.prod(block[1].recurrent.weight.shape)
+                ops["event_syn_ops"].append(srnn_syn_ops)
             
         srnn_readout_syn_ops = np.prod(self.srnn_readout.dense.weight.shape)
         ops["event_syn_ops"].append(srnn_readout_syn_ops)
