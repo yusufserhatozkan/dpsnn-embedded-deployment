@@ -95,5 +95,51 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 The 8MB FP32 model at N=B=H=256 is too large for STM32 (2MB Flash), but confirms the
 pipeline works end-to-end. Proceed to Phase 2: simplified DPSNN (SCNN-only, N=B=H=128).
 
-- Next step: Phase 2 — create SCNN-only variant, train at N=B=H=128
+- Next step: Phase 3 — train SCNN-only variant at N=B=H=128
+
+---
+
+## Phase 3: Simplified DPSNN Training
+
+### Model Variant: SCNN-only, N=B=H=128
+
+| Property | Value |
+|---|---|
+| Architecture | StreamSpikeNet, scnn_only=True |
+| N / B / H | 128 / 128 / 128 |
+| X (blocks) | 1 |
+| L / stride | 80 / 40 (5ms frame, 2.5ms hop) |
+| context_dur | 0.01 s |
+| Parameters | **57,476** |
+| vs. pretrained | 90,756 full → 57,476 SCNN-only → 13,644 (pretrained N=B=H=256 = ~1M+) |
+
+### Parameter Breakdown (N=B=H=128)
+- Full model (SCNN+SRNN): 90,756 params
+- SCNN-only: 57,476 params (~37% fewer than full 128-channel variant)
+
+---
+
+## Experiment 3: SCNN-only N=B=H=128 Training
+- Date: 2026-04-12
+- Config: N=128, B=128, H=128, L=80, stride=40, context_dur=0.01, X=1, scnn_only=True
+- Status: **IN PROGRESS**
+
+### Command
+```bash
+cd egs/voicebank
+PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
+    -L 80 --stride 40 -N 128 -B 128 -H 128 \
+    --context_dur 0.01 --max_epochs 300 -X 1 --lr 1e-2 \
+    --device_num 1 --scnn_only
+```
+
+### Results
+*Pending training completion.*
+
+| Metric | Noisy (input) | Enhanced | Clean (reference) |
+|--------|--------------|---------|------------------|
+| SI-SNR (dB) | — | — | — |
+| PESQ (wb) | — | — | 4.64 |
+| STOI | — | — | 1.00 |
+
 ---
