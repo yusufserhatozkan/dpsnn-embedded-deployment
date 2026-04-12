@@ -129,15 +129,59 @@ pipeline works end-to-end. Proceed to Phase 2: simplified DPSNN (SCNN-only, N=B=
 cd egs/voicebank
 PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
     -L 80 --stride 40 -N 128 -B 128 -H 128 \
-    --context_dur 0.01 --max_epochs 300 -X 1 --lr 1e-2 \
-    --device_num 1 --scnn_only
+    --context_dur 0.01 --frame_dur 0.5 --max_epochs 200 -X 1 --lr 1e-2 \
+    --device_num 1 --scnn_only --batch_size 64
 ```
+
+### Notes
+- Default batch_size=1024 OOM'd (8GB GPU): 399 unrolled steps → padded_frames = 399×(1024,16000)×4B ≈ 26 GB.
+- Reduced frame_dur 1.0→0.5 (199 time steps vs 399) and batch_size→64.
+- Actual epoch time: **27:43** (898 batches × 1.85 s/batch). Total estimate: 200 × 27.7 min ≈ 92 hours.
+- Input_dim=8160 (0.5s + 10ms context); 57,472 samples/epoch (random-hop ×5 per file).
+
+### Epoch 0 Checkpoint
+| | val_loss | val_sisnr |
+|---|---|---|
+| Epoch 0 | 94.40 | -5.61 dB |
 
 ### Results
 *Pending training completion.*
 
 | Metric | Noisy (input) | Enhanced | Clean (reference) |
 |--------|--------------|---------|------------------|
+| SI-SNR (dB) | — | — | — |
+| PESQ (wb) | — | — | 4.64 |
+| STOI | — | — | 1.00 |
+
+---
+
+## Phase 4: Conv-TasNet Baseline
+
+### Model Variant: N=48, B=48, H=96, P=3, tcn_depth=3, tcn_repeats=1
+
+| Property | Value |
+|---|---|
+| Architecture | Conv-TasNet (Luo & Mesgarani 2018) |
+| N / B / H | 48 / 48 / 96 |
+| TCN blocks | depth=3, repeats=1 (3 blocks, dilations 1,2,4) |
+| L / stride | 80 / 40 |
+| Parameters | **56,839** (matched to SCNN-only 57,476) |
+| Implementation | `convtasnet/model.py` |
+
+### Training Command
+```bash
+cd egs/voicebank
+PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
+    -L 80 --stride 40 -N 48 -B 48 -H 96 --P 3 --tcn_depth 3 --tcn_repeats 1 \
+    --context_dur 0.01 --frame_dur 0.5 --max_epochs 200 -X 1 --lr 1e-3 \
+    --device_num 1 --model convtasnet --batch_size 64
+```
+
+### Results
+*Pending training.*
+
+| Metric | Noisy | Enhanced | Clean |
+|--------|-------|---------|-------|
 | SI-SNR (dB) | — | — | — |
 | PESQ (wb) | — | — | 4.64 |
 | STOI | — | — | 1.00 |

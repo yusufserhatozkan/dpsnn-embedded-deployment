@@ -1,5 +1,5 @@
 import time
-import argparse, os
+import argparse, os, sys
 import random
 
 from omegaconf import OmegaConf
@@ -80,6 +80,13 @@ parser.add_argument('--devices', nargs='+', type=int, default=[0])
 parser.add_argument('--device_num', type=int, required=False)
 parser.add_argument('--random_hops', action='store_false')
 parser.add_argument('--scnn_only', action='store_true', help='SCNN-only variant: skip SRNN in each block')
+parser.add_argument('--model', type=str, default='dpsnn', choices=['dpsnn', 'convtasnet'],
+                    help='Model to train (default: dpsnn)')
+parser.add_argument('--P', type=int, default=3, help='Conv-TasNet depthwise kernel size')
+parser.add_argument('--tcn_depth', type=int, default=3,
+                    help='Conv-TasNet: TCN blocks per repeat (dilation doubles each block)')
+parser.add_argument('--tcn_repeats', type=int, default=1,
+                    help='Conv-TasNet: number of full TCN block sequence repeats')
 
 
 def rank_print(info):
@@ -516,12 +523,22 @@ def start_func():
     assert((not args.load_ckpt_path) and (not args.test_ckpt_path), 
            f"Please make sure not to set load_ckpt_path and test_ckpt_path together!")
 
-    spike_net = StreamSpikeNet(input_dim, context_dim,
-                        sr=config.sample_rate,
-                        L=args.L, stride=args.stride,
-                        N=args.N, B=args.B, H=args.H, X=args.X,
-                        learning_rate=config.optim.lr,
-                        scnn_only=args.scnn_only)
+    if args.model == 'convtasnet':
+        sys.path.insert(0, os.path.join(script_dir, '../..'))
+        from convtasnet.model import ConvTasNet
+        spike_net = ConvTasNet(input_dim, context_dim,
+                               sr=config.sample_rate,
+                               L=args.L, stride=args.stride,
+                               N=args.N, B=args.B, H=args.H, P=args.P,
+                               tcn_depth=args.tcn_depth, tcn_repeats=args.tcn_repeats,
+                               learning_rate=config.optim.lr)
+    else:
+        spike_net = StreamSpikeNet(input_dim, context_dim,
+                                   sr=config.sample_rate,
+                                   L=args.L, stride=args.stride,
+                                   N=args.N, B=args.B, H=args.H, X=args.X,
+                                   learning_rate=config.optim.lr,
+                                   scnn_only=args.scnn_only)
 
     print(spike_net)
     # import torch._dynamo as dynamo
