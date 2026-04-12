@@ -1,6 +1,6 @@
 name: &name "vctk_spike"
 
-data_folder: ./voicebank  # /export/scratch1/home/taosun/Projects/data/voicebank_4k
+data_folder: ../../data  # local: data/ at repo root (16kHz resampled)
 # data_folder: C:/Users/gintama/Documents/dns/dns_srnn/egs/voicebank/export
 # test_clean_folder: !ref <data_folder>/TEST/clean
 
@@ -32,14 +32,14 @@ frame_dur: 1.0
 context_dur: 0.01
 delay_dur: 0.00
 max_frames: 5
-num_workers: 1
+num_workers: 0  # 0 required on Windows — h5py handles can't be pickled for workers
 
 trainer:
   max_epochs: 300
 #  max_steps: null # computed at runtime if not set
   num_nodes: 1
-  strategy: ddp_find_unused_parameters_true  #ddp
-  accelerator: gpu # mps
+  strategy: auto  # use ddp_find_unused_parameters_true for multi-GPU training
+  accelerator: auto  # auto = gpu if available, else cpu
   # precision: 32
   limit_train_batches: 1.0
   devices: [1]

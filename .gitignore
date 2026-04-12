@@ -1,1 +1,9 @@
 /data
+*.hdf5
+*.ckpt
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+results/enhanced/
+results/audio/
+/docs/superpowers

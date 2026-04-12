@@ -272,7 +272,7 @@ def start_func():
     test_dataloader = DataLoader(test_dataset,
                             batch_size=None,
                             shuffle=False,
-                            num_workers=8)
+                            num_workers=0)  # 0 required on Windows — h5py can't be pickled
 
 
     if args.test_ckpt_path is None:
