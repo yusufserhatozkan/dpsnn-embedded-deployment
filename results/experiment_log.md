@@ -139,7 +139,8 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 - Epochs 0-1: ~27 min each. Epochs 2+: ~12 min each (CUDA warmup). Total: ~42 hours.
 - Input_dim=8160 (0.5s + 10ms context); 57,472 samples/epoch (random-hop ×5 per file).
 - EarlyStopping is commented out in vctk_trainer.py — runs all 200 epochs.
-- Best checkpoint (as of epoch 67): `lightning_logs/version_8/checkpoints/epoch=59-val_loss=91.0728-val_sisnr=-9.0286.ckpt`
+- Best checkpoint (as of epoch 91): `lightning_logs/version_8/checkpoints/epoch=88-val_loss=91.0043-val_sisnr=-9.0838.ckpt` (9.08 dB SI-SNR)
+- Top-3: epochs 59 (91.07), 86 (91.03), 88 (91.00)
 
 ### Epoch Progress
 | Epoch | val_loss | val_sisnr | Notes |
@@ -171,6 +172,10 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 | 63 | 91.26 | -8.84 dB | |
 | 64 | 93.30 | -6.82 dB | gradient spike |
 | 65–67 | ~91.6–92.9 | ~-7.2–8.5 dB | |
+| 68–84 | ~91.1–92.5 | ~-8.0–9.0 dB | plateau ~9 dB |
+| 86 | 91.03 | -9.06 dB | new best |
+| 88 | **91.00** | **-9.08 dB** | **new best ↑** |
+| 89–91 | ~91.3 | ~-8.8 dB | |
 
 ### Results
 *Pending training completion.*
