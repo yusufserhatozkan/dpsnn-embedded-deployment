@@ -136,8 +136,10 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 ### Notes
 - Default batch_size=1024 OOM'd (8GB GPU): 399 unrolled steps → padded_frames = 399×(1024,16000)×4B ≈ 26 GB.
 - Reduced frame_dur 1.0→0.5 (199 time steps vs 399) and batch_size→64.
-- Actual epoch time: **27:43** (898 batches × 1.85 s/batch). Total estimate: 200 × 27.7 min ≈ 92 hours.
+- Epochs 0-1: ~27 min each. Epochs 2+: ~12 min each (CUDA warmup). Total: ~42 hours.
 - Input_dim=8160 (0.5s + 10ms context); 57,472 samples/epoch (random-hop ×5 per file).
+- EarlyStopping is commented out in vctk_trainer.py — runs all 200 epochs.
+- Best checkpoint (as of epoch 38): `lightning_logs/version_8/checkpoints/epoch=31-val_loss=91.5398-val_sisnr=-8.5645.ckpt`
 
 ### Epoch Progress
 | Epoch | val_loss | val_sisnr | Notes |
@@ -145,6 +147,24 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 | 0 | 94.40 | -5.61 dB | random init |
 | 1 | 94.20 | -5.81 dB | |
 | 2 | 95.00 | -5.04 dB | |
+| 3 | 93.20 | -6.77 dB | |
+| 4 | 97.60 | -2.45 dB | spike/instability |
+| 5 | 93.10 | -6.97 dB | |
+| 6 | 92.80 | -7.21 dB | |
+| 7 | 95.30 | -4.72 dB | spike |
+| 8 | 92.70 | -7.35 dB | |
+| 9–11 | ~92.7 | ~-7.3 dB | steady improvement |
+| 12 | 92.50 | -7.57 dB | |
+| 13 | 93.50 | -6.60 dB | |
+| 14–17 | ~92.1 | ~-7.9 dB | |
+| 18 | 92.00 | -8.09 dB | |
+| 19–25 | ~92.3 | ~-7.7 dB | some fluctuation |
+| 26 | 91.90 | -8.21 dB | |
+| 27–29 | ~92–93 | ~-7 dB | fluctuation |
+| 30 | 91.78 | -8.33 dB | |
+| 31 | 91.54 | **-8.56 dB** | **best checkpoint ↑** |
+| 32–33 | ~91.7 | ~-8.4 dB | |
+| 34–38 | ~92–93 | ~-7.8 dB | fluctuation |
 
 ### Results
 *Pending training completion.*
