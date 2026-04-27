@@ -10,3 +10,9 @@ results/train_*_log.txt
 /docs/superpowers
 egs/voicebank/lightning_logs/
 export/*.onnx
+
+# AI assistant artifacts (not part of the project)
+CLAUDE.md
+.claude/
+.cursor/
+.aider*

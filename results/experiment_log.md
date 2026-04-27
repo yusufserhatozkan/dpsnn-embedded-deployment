@@ -87,6 +87,19 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 
 ---
 
+## Experiment 4: SCNN-only ONNX Export & Validation
+- Date: 2026-04-15
+- Checkpoint: `lightning_logs/version_9/checkpoints/epoch=163-val_loss=90.5477-val_sisnr=-9.5152.ckpt`
+- Status: **PASS**
+
+### Results
+- ONNX file: `export/dpsnn_scnn128.onnx` — **2,943 KB** (FP32)
+- Input shape: (1, 8160) — 0.5s @ 16kHz + 10ms context
+- Max abs diff (PyTorch vs ORT): **9.16e-05** (PASS < 1e-3)
+- Graph: 199 time steps unrolled
+
+---
+
 ## Decision After Phase 1
 - [x] **DPSNN path** — ONNX export works, numerical validation passed (diff=4.01e-05)
 - [ ] ~~Conv-TasNet fallback~~ — not needed; ONNX export succeeded
@@ -120,9 +133,9 @@ pipeline works end-to-end. Proceed to Phase 2: simplified DPSNN (SCNN-only, N=B=
 ---
 
 ## Experiment 3: SCNN-only N=B=H=128 Training
-- Date: 2026-04-12
+- Date: 2026-04-12 → 2026-04-15
 - Config: N=128, B=128, H=128, L=80, stride=40, context_dur=0.01, X=1, scnn_only=True
-- Status: **IN PROGRESS**
+- Status: **COMPLETED** (200 epochs)
 
 ### Command
 ```bash
@@ -139,8 +152,10 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 - Epochs 0-1: ~27 min each. Epochs 2+: ~12 min each (CUDA warmup). Total: ~42 hours.
 - Input_dim=8160 (0.5s + 10ms context); 57,472 samples/epoch (random-hop ×5 per file).
 - EarlyStopping is commented out in vctk_trainer.py — runs all 200 epochs.
-- Best checkpoint (as of epoch 91): `lightning_logs/version_8/checkpoints/epoch=88-val_loss=91.0043-val_sisnr=-9.0838.ckpt` (9.08 dB SI-SNR)
-- Top-3: epochs 59 (91.07), 86 (91.03), 88 (91.00)
+- Best checkpoint (as of epoch 163): `lightning_logs/version_9/checkpoints/epoch=163-val_loss=90.5477-val_sisnr=-9.5152.ckpt` (9.52 dB SI-SNR)
+- Top-3 (version_9): epochs 163 (90.5477), 170 (90.5880), 190 (90.6164)
+- Top-3 (version_8, epochs 0–155): epochs 139 (90.6064), 140 (90.6465), 138 (90.6478)
+- Note: training resumed into version_9 after crash at epoch 156 batch 282
 
 ### Epoch Progress
 | Epoch | val_loss | val_sisnr | Notes |
@@ -175,7 +190,80 @@ PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
 | 68–84 | ~91.1–92.5 | ~-8.0–9.0 dB | plateau ~9 dB |
 | 86 | 91.03 | -9.06 dB | new best |
 | 88 | **91.00** | **-9.08 dB** | **new best ↑** |
-| 89–91 | ~91.3 | ~-8.8 dB | |
+| 89–91 | ~91.0–91.3 | ~-8.8–9.1 dB | |
+| 92 | 92.50 | -7.58 dB | gradient spike |
+| 93 | 91.10 | -8.99 dB | |
+| 94 | **91.00** | **-9.08 dB** | ties best checkpoint |
+| 95 | 91.30 | -8.82 dB | |
+| 96 | 91.10 | -9.03 dB | |
+| 97 | 91.10 | -8.99 dB | |
+| 98–100 | ~91.2–92.1 | ~-8.0–9.0 dB | |
+| 101 | 91.00 | -9.06 dB | |
+| 102–103 | 91.20 | -8.90 dB | |
+| 104 | 90.90 | **-9.18 dB** | **new best ↑** |
+| 105 | **90.85** | **-9.24 dB** | **new best ↑** |
+| 106 | **90.86** | **-9.22 dB** | **checkpoint saved** (actual 90.8648) |
+| 107 | 91.00 | -9.13 dB | |
+| 108 | 91.00 | -9.13 dB | |
+| 109 | 91.50 | -8.57 dB | gradient spike |
+| 110 | 91.60 | -8.46 dB | spike continues |
+| 111 | 91.00 | -9.10 dB | recovered |
+| 112 | 91.00 | -9.10 dB | |
+| 113 | 91.00 | -9.10 dB | |
+| 114 | 91.00 | -9.05 dB | |
+| 115 | 91.00 | -9.05 dB | |
+| 116 | 91.10 | -8.98 dB | |
+| 117 | 91.10 | -9.01 dB | |
+| 118 | 91.10 | -9.01 dB | |
+| 119 | 91.10 | -8.99 dB | |
+| 120 | 91.80 | -8.33 dB | gradient spike |
+| 121 | 91.80 | -8.33 dB | spike persists |
+| 122 | 91.10 | -9.02 dB | recovered |
+| 123 | 91.10 | -9.02 dB | |
+| 124 | 90.90 | -9.17 dB | |
+| 125 | 91.50 | -8.56 dB | gradient spike |
+| 126 | 91.50 | -8.56 dB | spike persists |
+| 127 | 91.40 | -8.69 dB | recovering |
+| 128 | 91.40 | -8.72 dB | slow recovery |
+| 129 | 91.20 | -8.93 dB | recovering |
+| 130 | 90.90 | -9.15 dB | fully recovered |
+| 131 | 91.30 | -8.75 dB | |
+| 132 | **90.82** | **-9.25 dB** | **new best ↑** (actual 90.8241) |
+| 133 | 90.80 | -9.25 dB | |
+| 134 | **90.84** | **-9.23 dB** | **checkpoint saved** (actual 90.8424; tqdm showed stale 91.20) |
+| 135 | 90.80 | -9.23 dB | |
+| 136 | **90.79** | **-9.28 dB** | **new best ↑** (actual 90.7897) |
+| 137 | 90.80 | -9.28 dB | |
+| 138 | **90.65** | **-9.43 dB** | **new best ↑** (actual 90.6478; tqdm showed stale 91.00) |
+| 139 | **90.61** | **-9.47 dB** | **new best ↑** (actual 90.6064) |
+| 140 | **90.65** | **-9.42 dB** | **checkpoint saved** (actual 90.6465) |
+| 141 | 90.60 | -9.42 dB | |
+| 142 | 90.90 | -9.14 dB | |
+| 143 | 90.80 | -9.27 dB | |
+| 144 | 91.30 | -8.77 dB | |
+| 145 | 91.10 | -8.93 dB | |
+| 146 | 91.10 | -8.93 dB | |
+| 147 | 90.70 | -9.33 dB | |
+| 148 | 90.70 | -9.33 dB | |
+| 149 | 90.90 | -9.16 dB | |
+| 150 | 90.70 | -9.38 dB | |
+| 151 | 90.80 | -9.25 dB | |
+| 152 | 90.80 | -9.25 dB | |
+| 153 | 91.20 | -8.85 dB | |
+| 154 | 90.80 | -9.28 dB | |
+| 155 | 90.80 | -9.27 dB | |
+| 156 | 90.80 | -9.31 dB | |
+| 157 | 90.70 | -9.33 dB | |
+| 158 | 90.60 | -9.42 dB | |
+| 159–162 | ~90.7–91.2 | ~-8.9–9.4 dB | |
+| 163 | **90.55** | **-9.52 dB** | **new best ↑** (ckpt: 90.5477, v9) |
+| 164–169 | ~90.6–90.9 | ~-9.1–9.4 dB | |
+| 170 | 90.60 | -9.47 dB | checkpoint saved (90.5880, v9) |
+| 171–189 | ~90.6–91.2 | ~-8.9–9.4 dB | |
+| 190 | 90.60 | -9.44 dB | checkpoint saved (90.6164, v9) |
+| 191–197 | ~90.6–91.4 | ~-8.7–9.4 dB | |
+| 198 | 90.70 | -9.40 dB | |
+| 199 | 90.70 | -9.40 dB | **TRAINING COMPLETE** |
 
 ### Results
 *Pending training completion.*
