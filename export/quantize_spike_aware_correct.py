@@ -62,21 +62,24 @@ def build_producer_map(graph):
     return producers
 
 
-def find_activation_output_tensors(graph, safe_node_names: set[str]) -> list[str]:
+def find_activation_output_tensors(
+    graph, safe_node_names: set[str]
+) -> tuple[list[str], list[str]]:
     """Find output tensors of Relu/Sigmoid nodes that directly follow a SAFE Conv.
 
-    These are the tensors that should be quantized to INT8 per the supervisor's rule.
-    Returns a list of tensor names (outputs of Relu or Sigmoid nodes).
+    Returns (relu_tensors, sigmoid_tensors) as separate lists so each group can
+    receive its own quantization strategy:
+      - ReLU outputs  → one shared scale computed from global min/max across all time steps
+      - Sigmoid outputs → fixed scale 1/255, zp=-128 (output is always in [0, 1])
     """
     producer_map = build_producer_map(graph)
-    target_tensors = []
+    relu_tensors: list[str] = []
+    sigmoid_tensors: list[str] = []
 
     for node in graph.node:
         if node.op_type not in ('Relu', 'Sigmoid'):
             continue
 
-        # Check if this activation's input comes (directly or through bias-Add)
-        # from a SAFE Conv/Gemm/ConvTranspose
         if not node.input:
             continue
         inp = node.input[0]
@@ -84,27 +87,31 @@ def find_activation_output_tensors(graph, safe_node_names: set[str]) -> list[str
             continue
 
         producer = producer_map[inp]
+        is_safe = False
 
         # Direct: Conv → Relu/Sigmoid
         if producer.op_type in ('Conv', 'ConvTranspose', 'Gemm'):
             if (producer.name or '') in safe_node_names:
-                if node.output:
-                    target_tensors.append(node.output[0])
-            continue
+                is_safe = True
 
         # One hop: Conv → Add (bias) → Relu/Sigmoid
-        if producer.op_type == 'Add':
+        elif producer.op_type == 'Add':
             for add_inp in producer.input:
                 if not add_inp or add_inp not in producer_map:
                     continue
                 grandparent = producer_map[add_inp]
                 if grandparent.op_type in ('Conv', 'ConvTranspose', 'Gemm'):
                     if (grandparent.name or '') in safe_node_names:
-                        if node.output:
-                            target_tensors.append(node.output[0])
+                        is_safe = True
                         break
 
-    return list(set(target_tensors))
+        if is_safe and node.output:
+            if node.op_type == 'Relu':
+                relu_tensors.append(node.output[0])
+            else:
+                sigmoid_tensors.append(node.output[0])
+
+    return list(set(relu_tensors)), list(set(sigmoid_tensors))
 
 
 def find_unique_weight_names(graph, node_names_to_quantize: set[str]) -> dict[str, str]:
@@ -360,28 +367,44 @@ def quantize_spike_aware_correct(
 
     # ── Find ReLU/Sigmoid output tensors of SAFE Conv nodes ─────────────────
     print("Finding ReLU/Sigmoid activation outputs of SAFE Conv nodes...")
-    act_tensors = find_activation_output_tensors(graph, safe_node_names)
-    print(f"  Found {len(act_tensors)} activation tensors to quantize")
+    relu_tensors, sigmoid_tensors = find_activation_output_tensors(graph, safe_node_names)
+    print(f"  Found {len(relu_tensors)} ReLU tensors, {len(sigmoid_tensors)} Sigmoid tensors")
 
-    if not act_tensors:
+    if not relu_tensors and not sigmoid_tensors:
         print("WARNING: No activation tensors found. Check that safe_node_names match graph node names.")
 
-    # ── Calibrate those activation tensors ──────────────────────────────────
-    print(f"Calibrating {len(act_tensors)} activation tensors on {n_calib} samples...")
-    calib_stats = calibrate(prep_path, act_tensors, hdf5_path, n_calib)
-    print(f"  Calibration done. Example ranges:")
-    for name, (mn, mx) in list(calib_stats.items())[:3]:
-        print(f"    {name}: [{mn:.4f}, {mx:.4f}]")
+    # ── Calibrate ReLU outputs; Sigmoid uses a fixed scale ──────────────────
+    # Sigmoid output is always in [0, 1] by definition, so no calibration needed.
+    # ReLU outputs are calibrated but share ONE global scale across all 401 time
+    # steps — this matches real hardware (X-CUBE-AI uses one scale per layer).
+    relu_scale = np.float32(1e-8)
+    relu_zp = np.int8(0)
+    if relu_tensors:
+        print(f"Calibrating {len(relu_tensors)} ReLU tensors on {n_calib} samples...")
+        relu_stats = calibrate(prep_path, relu_tensors, hdf5_path, n_calib)
+        global_min = min(v[0] for v in relu_stats.values())
+        global_max = max(v[1] for v in relu_stats.values())
+        relu_scale, relu_zp = compute_asymmetric_scale_zp(global_min, global_max)
+        print(f"  Global ReLU range: [{global_min:.4f}, {global_max:.4f}]")
+        print(f"  Shared ReLU scale: {relu_scale:.6f}, zp: {relu_zp}")
 
-    # ── Insert Q→DQ after each ReLU/Sigmoid activation ──────────────────────
-    print("Inserting Q→DQ nodes after ReLU/Sigmoid activations...")
-    for i, tensor_name in enumerate(act_tensors):
-        if tensor_name not in calib_stats:
-            continue
-        min_val, max_val = calib_stats[tensor_name]
-        scale, zp = compute_asymmetric_scale_zp(min_val, max_val)
-        insert_qdq_after_tensor(graph, tensor_name, float(scale), int(zp), suffix=str(i))
-    print(f"  Inserted {len(act_tensors)} Q→DQ pairs")
+    # Fixed scale for Sigmoid: maps [-128, 127] exactly onto [0, 1]
+    # DequantizeLinear: x = (q - zp) * scale → (q - (-128)) * (1/255) ∈ [0, 1]
+    sigmoid_scale = np.float32(1.0 / 255.0)
+    sigmoid_zp = np.int8(-128)
+    if sigmoid_tensors:
+        print(f"  Fixed Sigmoid scale: {sigmoid_scale:.6f}, zp: {sigmoid_zp}")
+
+    # ── Insert Q→DQ after ReLU and Sigmoid activations ──────────────────────
+    print(f"Inserting Q->DQ nodes...")
+    for i, tensor_name in enumerate(relu_tensors):
+        insert_qdq_after_tensor(graph, tensor_name, float(relu_scale), int(relu_zp),
+                                suffix=f'relu_{i}')
+    for i, tensor_name in enumerate(sigmoid_tensors):
+        insert_qdq_after_tensor(graph, tensor_name, float(sigmoid_scale), int(sigmoid_zp),
+                                suffix=f'sig_{i}')
+    print(f"  Inserted {len(relu_tensors)} ReLU Q->DQ pairs (shared scale)")
+    print(f"  Inserted {len(sigmoid_tensors)} Sigmoid Q->DQ pairs (fixed scale)")
 
     # ── Quantize Conv weights to INT8 ────────────────────────────────────────
     nodes_to_quantize_weights = all_weight_nodes if quantize_spike_weights else safe_node_names

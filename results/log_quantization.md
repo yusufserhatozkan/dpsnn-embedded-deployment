@@ -200,26 +200,65 @@ python export/quantize_spike_aware_correct.py \
   acts as a regulariser, reducing spectral artifacts that PESQ/composite penalize.
 - STOI unchanged: intelligibility preserved in both approaches.
 
-**Known fix not yet implemented:** use a single shared scale across all 401 encoder ReLU
-outputs (global min/max over all time steps × calibration samples), and a fixed scale
-for mask Sigmoid (output always in [0,1], so scale=1/255). This would match real hardware
-behavior and is expected to significantly reduce the SI-SNR gap.
+**Fix implemented in v4** — see below.
+
+---
+
+### v4 — Shared scale (final fix, 2026-04-29)
+
+Root cause of v3's −1.50 dB drop: each of the 401 unrolled time steps had its own
+independently calibrated scale. Real hardware (X-CUBE-AI) uses one scale per layer.
+
+Fix in `export/quantize_spike_aware_correct.py`:
+- **ReLU outputs:** one global (min, max) computed across all 401 time steps × 50 calibration
+  samples → single shared scale 0.057208, zp=−128
+- **Sigmoid outputs:** fixed scale 1/255, zp=−128 — mathematically exact for [0, 1] range,
+  no calibration needed
+
+```bash
+python export/quantize_spike_aware_correct.py \
+    --onnx_path export/dpsnn_scnn128.onnx \
+    --spike_map export/dpsnn_scnn128.onnx.spike_map.json \
+    --hdf5_path data/results/save/test.hdf5 \
+    --output_path export/dpsnn_scnn128_int8_v4_sharedscale.onnx \
+    --n_calib 50
+```
+
+| Metric | Noisy | FP32 | Weight-only | v3 (per-step) | **v4 (shared)** |
+|---|---|---|---|---|---|
+| SI-SNR (dB) | 8.44 | 17.23 | 16.92 | 15.73 | **16.94** |
+| PESQ (wb) | 1.971 | 2.089 | 1.757 | 1.801 | 1.759 |
+| STOI | 0.921 | 0.920 | 0.916 | 0.916 | 0.915 |
+| Composite OVRL | 2.637 | 2.480 | 1.825 | 2.011 | 1.928 |
+| Composite SIG | 3.357 | 2.935 | 2.007 | 2.311 | 2.180 |
+| Composite BAK | 2.445 | 2.909 | 2.655 | 2.689 | **2.700** |
+
+**v4 result:** SI-SNR drop reduced from −1.50 dB to **−0.29 dB**, matching weight-only INT8
+(−0.31 dB). The shared scale fully eliminates the calibration generalisation problem.
+Perceptual metrics sit between weight-only and v3: BAK marginally better than weight-only,
+PESQ/SIG/OVRL slightly below v3.
 
 ---
 
 ## Summary — All Quantization Results
 
-| Model | SI-SNR | PESQ | Flash (weights) | Notes |
-|---|---|---|---|---|
-| FP32 ONNX | 17.23 dB | 2.089 | 278.5 KB | Baseline |
-| Standard INT8 (ORT) | ~7–8 dB | ~1.3 | — | Catastrophic — membrane potential quantized |
-| **Weight-only INT8** | **16.92 dB** | 1.757 | **140.9 KB** | **Recommended for deployment** |
-| v3-correct INT8 | 15.73 dB | **1.801** | 140.9 KB | Better perceptual; SI-SNR fixable with shared scale |
+| Model | SI-SNR | PESQ | STOI | Flash (weights) | Notes |
+|---|---|---|---|---|---|
+| FP32 ONNX | 17.23 dB | 2.089 | 0.920 | 278.5 KB | Baseline |
+| Standard INT8 (ORT) | ~7–8 dB | ~1.3 | ~0.83 | — | Catastrophic — membrane potential quantized |
+| Weight-only INT8 | 16.92 dB | 1.757 | 0.916 | 140.9 KB | All weights INT8, acts FP32 |
+| v3 corrected (per-step scale) | 15.73 dB | 1.801 | 0.916 | 140.9 KB | Correct placement, wrong calibration |
+| **v4 corrected (shared scale)** | **16.94 dB** | 1.759 | 0.915 | **140.9 KB** | **Correct placement + correct calibration** |
+
+**Recommended deployment model: v4** (`dpsnn_scnn128_int8_v4_sharedscale.onnx`)
+- SI-SNR −0.29 dB vs FP32 (matches weight-only)
+- Theoretically correct per supervisor's rule (QDQ after activation, not before)
+- Single scale per layer — matches X-CUBE-AI hardware behavior
 
 **Thesis contribution:** Standard PTQ tools (onnxruntime `quantize_static`) incorrectly place
-activation QDQ between Conv and ReLU, quantizing the partial sum (membrane potential equivalent).
-This destroys SNN output quality. Weight-only INT8 is the robust deployment solution.
-The correct activation INT8 (v3-correct) is theoretically sound but needs shared-scale calibration.
+activation QDQ between Conv and ReLU, quantizing the partial sum (membrane potential equivalent),
+which destroys SNN output quality. The correct approach: one shared scale per layer calibrated
+from global min/max across all time steps, inserted after the activation function.
 
 ---
 

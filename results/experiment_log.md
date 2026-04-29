@@ -22,7 +22,7 @@ Full records are split across three files. Open the relevant one for details.
 | 3 | SCNN-only N=128 first run (frame_dur=0.5) | DISCARDED — 9.52 dB ceiling; root cause: too few time steps |
 | 4 | SCNN-only ONNX export of discarded checkpoint | PASS — confirms export pipeline works for SCNN-only |
 | 5 | SCNN-only N=128 retrain (frame_dur=1.0, gradient clipping) | **17.60 dB val / 17.23 dB test** — deployment model |
-| 6 | INT8 quantization of SCNN-only N=128 | Weight-only: **16.92 dB, 140.9 KB Flash** — recommended |
+| 6 | INT8 quantization of SCNN-only N=128 | v4 shared-scale: **16.94 dB, 140.9 KB Flash** — recommended |
 
 ---
 
@@ -33,5 +33,6 @@ Full records are split across three files. Open the relevant one for details.
 | Noisy input | 8.44 dB | 1.971 | 0.921 | — |
 | Pretrained N=256 (FP32) | 18.08 dB | 2.264 | 0.925 | 1,457 KB |
 | SCNN-only N=128 (FP32) | 17.23 dB | 2.089 | 0.920 | 278.5 KB |
-| SCNN-only N=128 (weight-only INT8) | **16.92 dB** | 1.757 | 0.916 | **140.9 KB** |
-| Standard INT8 (any variant) | ~6–8 dB | ~1.3 | ~0.83 | — |
+| SCNN-only N=128 (weight-only INT8) | 16.92 dB | 1.757 | 0.916 | 140.9 KB |
+| **SCNN-only N=128 (v4 shared-scale INT8)** | **16.94 dB** | 1.759 | 0.915 | **140.9 KB** |
+| Standard INT8 (any ORT variant) | ~6–8 dB | ~1.3 | ~0.83 | — |
