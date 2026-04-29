@@ -106,32 +106,22 @@ this fork adds:
 |---|---|
 | 1 — Environment & data prep | done |
 | 2 — Pretrained ONNX export + validation | done (8.2 MB FP32, diff 4.01e-05) |
-| 3 — SCNN-only N=128 training | retrain in progress (9.52 dB run discarded; full VoiceBank-DEMAND, plateau-stop) |
+| 3 — SCNN-only N=128 training | done — best val SI-SNR **17.60 dB** (epoch 39, gradient clipping) |
 | 4 — Conv-TasNet baseline | dropped (too large for embedded target) |
-| 5 — Pretrained INT8 quantization | in progress (pipeline validation on N=256 model) |
-| 6 — SCNN-only ONNX + INT8 | pending Phase 3 completion |
-| 7 — STM32 deployment | pending Phase 6 |
+| 5 — INT8 quantization study | done — weight-only INT8 selected for deployment (−0.31 dB, 140.9 KB) |
+| 6 — SCNN-only ONNX export + footprint | done — 5.6 MB FP32 ONNX, 278.5 KB weights, 125.6 KB I/O RAM |
+| 7 — STM32 deployment | in progress — X-CUBE-AI Analyse next |
 
-### Pretrained N=256 baseline (full 824-sample VoiceBank test set)
+### SCNN-only N=128 — full 824-sample VoiceBank test set
 
-| Metric | Noisy input | Enhanced | Clean ref |
-|---|---|---|---|
-| SI-SNR (dB) | 8.44 | **18.08** | — |
-| PESQ (wb) | 1.97 | **2.26** | 4.64 |
-| STOI | 0.921 | **0.925** | 1.00 |
+| Metric | Noisy | FP32 | Weight-only INT8 | Pretrained N=256 (ref) |
+|---|---|---|---|---|
+| SI-SNR (dB) | 8.44 | **17.23** | **16.92** | 18.08 |
+| PESQ (wb) | 1.971 | 2.089 | 1.757 | 2.264 |
+| STOI | 0.921 | 0.920 | 0.916 | 0.925 |
 
-### SCNN-only N=128 (training in progress)
-
-| Property | Value |
-|---|---|
-| Parameters | 57,476 |
-| Epoch 0 val SI-SNR | **15.39 dB** (already above 15 dB target) |
-| Root cause of prior 9.52 dB result | `frame_dur=0.5` (199 steps) instead of `frame_dur=1.0` (399 steps) |
-| Estimated INT8 Flash | ~56 KB (well under 2 MB) |
-| Estimated peak RAM | ~463 KB (under 786 KB) |
-
-Training continues — expect plateau around 16–17 dB. See
-[`results/experiment_log.md`](results/experiment_log.md) for full trajectory.
+71.3 K params vs ~373 K pretrained — 5× smaller, −0.85 dB SI-SNR penalty.
+See [`results/experiment_log.md`](results/experiment_log.md) for full details.
 
 ---
 
