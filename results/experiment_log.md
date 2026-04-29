@@ -26,13 +26,23 @@ Full records are split across three files. Open the relevant one for details.
 
 ---
 
-## Key Numbers for the Thesis
+## Full Quantization Comparison (824-utterance VoiceBank-DEMAND test set)
 
-| Model | SI-SNR | PESQ | STOI | Flash (weights) |
-|---|---|---|---|---|
-| Noisy input | 8.44 dB | 1.971 | 0.921 | — |
-| Pretrained N=256 (FP32) | 18.08 dB | 2.264 | 0.925 | 1,457 KB |
-| SCNN-only N=128 (FP32) | 17.23 dB | 2.089 | 0.920 | 278.5 KB |
-| SCNN-only N=128 (weight-only INT8) | 16.92 dB | 1.757 | 0.916 | 140.9 KB |
-| **SCNN-only N=128 (v4 shared-scale INT8)** | **16.94 dB** | 1.759 | 0.915 | **140.9 KB** |
-| Standard INT8 (any ORT variant) | ~6–8 dB | ~1.3 | ~0.83 | — |
+All numbers are for the **SCNN-only N=128** model. Noisy and FP32 rows are the reference.
+Flash = weight bytes only (not ONNX file size).
+
+| Model | Approach | SI-SNR (dB) | PESQ (wb) | STOI | OVRL | SIG | BAK | Flash |
+|---|---|---|---|---|---|---|---|---|
+| Noisy input | — | 8.44 | 1.971 | 0.921 | 2.637 | 3.357 | 2.445 | — |
+| FP32 ONNX | baseline | 17.23 | 2.089 | 0.920 | 2.480 | 2.935 | 2.909 | 278.5 KB |
+| Naive INT8 v1 | ORT quantize_static, spike_map exclusion only | 7.64 | 1.328 | 0.846 | 1.341 | 1.456 | 2.197 | — |
+| Naive INT8 v2 | ORT quantize_static, op_types restricted | 7.92 | 1.309 | 0.840 | 1.340 | 1.490 | 2.167 | — |
+| Weight-only INT8 | All weights INT8, all activations FP32 | 16.92 | 1.757 | 0.916 | 1.825 | 2.007 | 2.655 | 140.9 KB |
+| v3 corrected | QDQ after ReLU/Sigmoid, per-step scale | 15.73 | 1.801 | 0.916 | 2.011 | 2.311 | 2.689 | 140.9 KB |
+| **v4 corrected** | **QDQ after ReLU/Sigmoid, shared scale** | **16.94** | **1.759** | **0.915** | **1.928** | **2.180** | **2.700** | **140.9 KB** |
+
+**Drop vs FP32 (v4 recommended model):**
+
+| SI-SNR | PESQ | STOI | OVRL | SIG | BAK |
+|---|---|---|---|---|---|
+| −0.29 dB | −0.330 | −0.005 | −0.552 | −0.755 | −0.209 |
