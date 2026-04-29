@@ -43,6 +43,7 @@ trainer:
   # precision: 32
   limit_train_batches: 1.0
   devices: [1]
+  gradient_clip_val: 1.0   # prevent mse spike divergence
 
 checkpoint:
   monitor: 'val_loss'

@@ -1,4 +1,4 @@
-"""ONNX export utilities for StreamSpikeNet and ConvTasNet.
+"""ONNX export utilities for StreamSpikeNet.
 
 Usage (from repo root):
     # DPSNN pretrained (N=256)
@@ -6,15 +6,10 @@ Usage (from repo root):
         --ckpt_path egs/voicebank/epoch=478-val_loss=81.5449-val_sisnr=-18.4556.ckpt \\
         --output_path export/dpsnn_pretrained.onnx
 
-    # DPSNN simplified after training (scnn_only, N=128 — hparams loaded from ckpt)
+    # DPSNN scnn_only after training (hparams loaded from ckpt)
     python export/export_to_onnx.py \\
         --ckpt_path egs/voicebank/<scnn_ckpt>.ckpt \\
         --output_path export/dpsnn_scnn128.onnx
-
-    # Conv-TasNet (hparams loaded from ckpt)
-    python export/export_to_onnx.py \\
-        --ckpt_path egs/voicebank/<convtasnet_ckpt>.ckpt \\
-        --output_path export/convtasnet_48.onnx --model convtasnet
 """
 from __future__ import annotations
 
@@ -59,20 +54,10 @@ class ExportWrapper(nn.Module):
         return enhanced.reshape(noisy_x.shape[0], -1)
 
 
-def load_from_checkpoint(ckpt_path: str, model_type: str = "dpsnn") -> nn.Module:
-    """Load a model from a PyTorch Lightning checkpoint.
-
-    model_type: 'dpsnn' (default) or 'convtasnet'
-    """
+def load_from_checkpoint(ckpt_path: str) -> nn.Module:
+    """Load a StreamSpikeNet from a PyTorch Lightning checkpoint."""
     ckpt = torch.load(ckpt_path, map_location="cpu")
-    hparams = ckpt["hyper_parameters"]
-
-    if model_type == "convtasnet":
-        from convtasnet.model import ConvTasNet
-        model = ConvTasNet(**hparams)
-    else:
-        model = StreamSpikeNet(**hparams)
-
+    model = StreamSpikeNet(**ckpt["hyper_parameters"])
     model.load_state_dict(ckpt["state_dict"])
     model.eval()
     return model
@@ -108,24 +93,20 @@ def export_model(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Export StreamSpikeNet or ConvTasNet to ONNX")
+    parser = argparse.ArgumentParser(description="Export StreamSpikeNet to ONNX")
     parser.add_argument("--ckpt_path", required=True)
     parser.add_argument("--output_path", default="export/model.onnx")
-    parser.add_argument("--model", default="dpsnn", choices=["dpsnn", "convtasnet"],
-                        help="Model type to load from checkpoint (default: dpsnn)")
     parser.add_argument("--opset", type=int, default=13)
     args = parser.parse_args()
 
     print(f"Loading checkpoint: {args.ckpt_path}")
-    model = load_from_checkpoint(args.ckpt_path, model_type=args.model)
+    model = load_from_checkpoint(args.ckpt_path)
 
     input_dim = model.hparams["input_dim"]
     print(f"Model: input_dim={input_dim}, "
           f"context_dim={model.hparams['context_dim']}, "
-          f"N={model.hparams['N']}, B={model.hparams['B']}, H={model.hparams['H']}")
-    if args.model == "dpsnn":
-        print(f"  scnn_only={model.hparams.get('scnn_only', False)}")
+          f"N={model.hparams['N']}, B={model.hparams['B']}, H={model.hparams['H']}, "
+          f"scnn_only={model.hparams.get('scnn_only', False)}")
 
     wrapper = ExportWrapper(model)
     dummy_input = torch.randn(1, input_dim)

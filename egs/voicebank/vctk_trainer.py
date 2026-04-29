@@ -14,7 +14,7 @@ import numpy as np
 
 import pytorch_lightning as pl
 from pytorch_lightning.utilities import rank_zero_info
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from torchmetrics.functional.audio.pesq import perceptual_evaluation_speech_quality as eval_pesq
 from torchmetrics.functional.audio.stoi import short_time_objective_intelligibility as eval_stoi
@@ -80,13 +80,6 @@ parser.add_argument('--devices', nargs='+', type=int, default=[0])
 parser.add_argument('--device_num', type=int, required=False)
 parser.add_argument('--random_hops', action='store_false')
 parser.add_argument('--scnn_only', action='store_true', help='SCNN-only variant: skip SRNN in each block')
-parser.add_argument('--model', type=str, default='dpsnn', choices=['dpsnn', 'convtasnet'],
-                    help='Model to train (default: dpsnn)')
-parser.add_argument('--P', type=int, default=3, help='Conv-TasNet depthwise kernel size')
-parser.add_argument('--tcn_depth', type=int, default=3,
-                    help='Conv-TasNet: TCN blocks per repeat (dilation doubles each block)')
-parser.add_argument('--tcn_repeats', type=int, default=1,
-                    help='Conv-TasNet: number of full TCN block sequence repeats')
 
 
 def rank_print(info):
@@ -99,8 +92,6 @@ rank_print(args)
 if args.random_seeds:
     randomize_seeding()
 
-# This line will print the entire config of the LSTM model
-# config_path = f"{args.config}"
 script_path = os.path.realpath(__file__)
 script_dir = os.path.dirname(script_path)
 
@@ -123,8 +114,6 @@ if args.sr:
     rank_print(f"sample_rate: {config.sample_rate}")
 
 print("Trainer config - \n")
-# accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
-# config.trainer.accelerator = accelerator
 rank_print(f"accelerator: {config.trainer.accelerator}")
 
 if args.device_num:
@@ -147,12 +136,9 @@ if args.lr:
     rank_print(f"learng_rate: {config.optim.lr}")
 if args.batch_size:
     config.batch_size = args.batch_size
-    # rank_print(f"batch_size: {config.batch_size}")
 
-config.batch_size //=  args.device_num
+config.batch_size //= args.device_num
 rank_print(f"batch_size: {config.batch_size}")
-# config.optim.lr *= len(config.trainer.devices)
-# rank_print(f"learng_rate: {config.optim.lr}")
 
 
 
@@ -182,33 +168,6 @@ def start_func():
         create_hdf5(config.csv_valid, config.hdf5_valid, config.sample_rate)
         create_hdf5(config.csv_test, config.hdf5_test, config.sample_rate)
 
-    # train_dataloader = make_dataloader(train=True,
-    #                                data_kwargs={"hdf_file": config.hdf5_train},
-    #                                batch_size=config.batch_size,
-    #                                chunk_size=int(config.frame_dur * config.sample_rate),
-    #                                num_workers=config.num_workers)
-    # valid_dataloader = make_dataloader(train=True,
-    #                                data_kwargs={"hdf_file": config.hdf5_test},
-    #                                batch_size=config.batch_size,
-    #                                chunk_size=int(config.frame_dur * config.sample_rate),
-    #                                num_workers=config.num_workers)
-    # test_dataloader = make_eval_dataloader(data_kwargs={"hdf_file": config.hdf5_test}, num_workers=config.num_workers)
-
-    # train_dataset = WaveDataset(
-    #     hdf_file=config.hdf5_train,
-    #     frame_dur=config.frame_dur,
-    #     sr=config.sample_rate,
-    #     channels=1,
-    #     context_dur=config.context_dur,
-    #     max_frames=config.max_frames)
-    # train_dataloader = DataLoader(train_dataset,
-    #                         batch_size=config.batch_size,
-    #                         shuffle=True,
-    #                         collate_fn=frame_clip_batch,
-    #                         num_workers=8,
-    #                         worker_init_fn=worker_init_fn,
-    #                         drop_last=True)
-    
     start_context_dur = args.X * config.context_dur
 
     if args.test_ckpt_path is None:
@@ -238,21 +197,6 @@ def start_func():
                                 worker_init_fn=worker_init_fn)
 
 
-        # valid_dataset = WaveDataset(
-        #     hdf_file=config.hdf5_test,
-        #     frame_dur=config.frame_dur,
-        #     sr=config.sample_rate,
-        #     channels=1,
-        #     context_dur=config.context_dur,
-        #     max_frames=config.max_frames)
-
-        # valid_dataloader = DataLoader(valid_dataset,
-        #                         batch_size=config.batch_size,
-        #                         shuffle=False,
-        #                         collate_fn=frame_clip_batch,
-        #                         num_workers=8,
-        #                         worker_init_fn=worker_init_fn,
-        #                         drop_last=True)
         valid_dataset = ContextSepDataset(
             hdf_file=config.hdf5_test,
             frame_dur=config.frame_dur,
@@ -373,13 +317,6 @@ def start_func():
             rank_print(f"\nAvg DNSMOS clean   [ovrl, sig, bak]: {self.dnsmos_clean}")
             rank_print(f"Avg DNSMOS noisy   [ovrl, sig, bak]: {self.dnsmos_noisy}")
             rank_print(f"Avg DNSMOS enhanced [ovrl, sig, bak]: {self.dnsmos_enhanced}")
-            
-            # dt = args.stride / config.sample_rate
-            # buffer_latency = args.L / config.sample_rate
-            # print(f'Buffer latency: {buffer_latency * 1000} ms')
-
-            # dns_latency = np.mean(self.dns_delays) / config.sample_rate
-            # print(f'Network latency: {dns_latency * 1000} ms')
 
         def on_test_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
             x, y = batch
@@ -407,15 +344,6 @@ def start_func():
             file_len = y[2]
             save_dir = os.path.join(config.output_folder, "")
             
-            # orig_noisy_sisnr = -singlesrc_neg_sisdr(noisy, clean)
-            # orig_enhanced_sisnr = -singlesrc_neg_sisdr(enhanced, clean)
-            # # print(f"x[1] shape: {x[1].shape}, y[1] shape: {y[1].shape}")
-            # # for idx in range(orig_noisy_sisnr.shape[0]):
-            #     # print(f"{orig_enhanced_sisnr[idx]}, {orig_noisy_sisnr[idx]}")
-            # # print(f"\n\nsegmental enhanced sisnr: {orig_enhanced_sisnr.mean()}, noisy_sisnr: {orig_noisy_sisnr.mean()}")
-            # self.orig_noisy_sisnr_list.append(orig_noisy_sisnr.mean())
-            # self.orig_sisnr_list.append(orig_enhanced_sisnr.mean())
-
             enhanced_tensor = enhanced.reshape(1, -1)
             # print(f"enhanced_tensor shape: {enhanced_tensor.shape}")
             noisy_tensor = noisy.reshape(1, -1)
@@ -514,38 +442,23 @@ def start_func():
 
 
     test_callback = TestCallback()
-    # early_stop_callback = EarlyStopping(**config.EarlyStopping)
-    checkpoint_callback = ModelCheckpoint(monitor=config.checkpoint.monitor, 
+    early_stop_callback = EarlyStopping(**config.EarlyStopping)
+    checkpoint_callback = ModelCheckpoint(monitor=config.checkpoint.monitor,
                                           save_top_k=config.checkpoint.save_top_k,
                                           save_last=config.checkpoint.save_last,
                                           filename=config.checkpoint.filename)
-    trainer = pl.Trainer(callbacks=[checkpoint_callback, test_callback], **config.trainer)
-    assert((not args.load_ckpt_path) and (not args.test_ckpt_path), 
-           f"Please make sure not to set load_ckpt_path and test_ckpt_path together!")
+    trainer = pl.Trainer(callbacks=[checkpoint_callback, early_stop_callback, test_callback], **config.trainer)
+    assert not (args.load_ckpt_path and args.test_ckpt_path), \
+        "Please make sure not to set load_ckpt_path and test_ckpt_path together!"
 
-    if args.model == 'convtasnet':
-        sys.path.insert(0, os.path.join(script_dir, '../..'))
-        from convtasnet.model import ConvTasNet
-        spike_net = ConvTasNet(input_dim, context_dim,
+    spike_net = StreamSpikeNet(input_dim, context_dim,
                                sr=config.sample_rate,
                                L=args.L, stride=args.stride,
-                               N=args.N, B=args.B, H=args.H, P=args.P,
-                               tcn_depth=args.tcn_depth, tcn_repeats=args.tcn_repeats,
-                               learning_rate=config.optim.lr)
-    else:
-        spike_net = StreamSpikeNet(input_dim, context_dim,
-                                   sr=config.sample_rate,
-                                   L=args.L, stride=args.stride,
-                                   N=args.N, B=args.B, H=args.H, X=args.X,
-                                   learning_rate=config.optim.lr,
-                                   scnn_only=args.scnn_only)
+                               N=args.N, B=args.B, H=args.H, X=args.X,
+                               learning_rate=config.optim.lr,
+                               scnn_only=args.scnn_only)
 
     print(spike_net)
-    # import torch._dynamo as dynamo
-    # dynamo.config.cache_size_limit = 128
-    # spike_net = torch.compile(spike_net)
-    
-    # spike_net = SDNN(learning_rate=config.optim.lr)
 
     if args.test_ckpt_path is None:  # training
         if args.load_ckpt_path:
@@ -563,9 +476,6 @@ def start_func():
         
         rank_print(f"\n\ntesting with best:")
         trainer.test(spike_net, ckpt_path="best", dataloaders=test_dataloader)
-        
-        # rank_print(f"\n\ntesting with last:")
-        # trainer.test(spike_net, ckpt_path="last", dataloaders=test_dataloader)
     else:  # testing
         test_ckpt_path = os.path.join(script_dir, args.test_ckpt_path)
         rank_print(f"test_ckpt_path: {test_ckpt_path}")

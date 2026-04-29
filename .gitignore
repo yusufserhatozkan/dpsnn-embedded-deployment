@@ -16,3 +16,17 @@ CLAUDE.md
 .claude/
 .cursor/
 .aider*
+.agents/
+skills-lock.json
+
+# Lecture PDFs and personal notes
+*.pdf
+
+# Throwaway diagnostic / binary-search scripts
+export/_check_*.py
+
+# Intermediate spike-map variants (keep only the main one)
+export/*.spike_map_*_only.json
+
+# Per-experiment metrics snapshots for discarded pretrained-model attempts
+export/dpsnn_pretrained_*.metrics.txt

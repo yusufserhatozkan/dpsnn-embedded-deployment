@@ -45,13 +45,7 @@ this fork adds:
 - Trained at **N = B = H = 128** for 200 epochs on VoiceBank-DEMAND.
   **57,476 parameters**, best **SI-SNR = 9.52 dB** at epoch 163.
 
-### 2. A Conv-TasNet baseline
-- [`convtasnet/model.py`](convtasnet/model.py) — Conv-TasNet
-  (Luo & Mesgarani 2018) sized to match the SCNN-only model
-  (N=48, B=48, H=96, P=3, tcn_depth=3, tcn_repeats=1, **56,839 params**).
-- Acts as the non-spiking, guaranteed-deployable comparison point.
-
-### 3. ONNX export with two upstream bug fixes
+### 2. ONNX export with two upstream bug fixes
 - [`export/export_to_onnx.py`](export/export_to_onnx.py) — exports either
   DPSNN or Conv-TasNet to ONNX (opset 13).
 - Fixes baked into `dpsnn/models/dp_binary_net.py`:
@@ -65,14 +59,14 @@ this fork adds:
   PyTorch and ONNX Runtime is 4.01e-05 for the pretrained model and
   9.16e-05 for our SCNN-only variant (both far below the 1e-3 threshold).
 
-### 4. INT8 static quantization
+### 3. INT8 static quantization
 - [`export/quantize_int8.py`](export/quantize_int8.py) — uses
   `onnxruntime.quantization.quantize_static` (QDQ format, per-tensor MinMax)
   with calibration samples streamed from the VoiceBank test HDF5.
 - Includes a quality snapshot that compares FP32 vs INT8 SI-SNR on a few
   utterances and writes `<output>.metrics.txt`.
 
-### 5. Full ONNX evaluation pipeline
+### 4. Full ONNX evaluation pipeline
 - [`evaluation/eval_onnx.py`](evaluation/eval_onnx.py) — runs an ONNX model
   over the entire 824-sample VoiceBank test set and reports SI-SNR, PESQ,
   STOI, and composite (DNSMOS-style) scores.
@@ -80,7 +74,7 @@ this fork adds:
   context-size zeros, pad to multiple of output_size, slice with
   output_size hop) so ONNX outputs match PyTorch outputs.
 
-### 6. Embedded-deployment tooling
+### 5. Embedded-deployment tooling
 - [`tools/estimate_footprint.py`](tools/estimate_footprint.py) — reads an
   ONNX proto, counts parameters and weight bytes by dtype, and reports
   Flash/RAM usage against the 2 MB / 786 KB STM32 limits.
@@ -91,7 +85,7 @@ this fork adds:
   VoiceBank wav files (originally 48 kHz) down to 16 kHz, writes
   train/valid/test CSVs and HDF5 caches.
 
-### 7. Windows + single-GPU patches
+### 6. Windows + single-GPU patches
 - `vctk.yaml`: `accelerator: auto`, `strategy: auto`,
   `data_folder: ../../data`, `num_workers: 0` (h5py handles aren't
   picklable on Windows worker spawn).
@@ -99,11 +93,10 @@ this fork adds:
 - Use `--device_num 1` (integer) instead of the upstream
   `--devices 0` (list, invalid for the CPU accelerator).
 
-### 8. Experiment log
+### 7. Experiment log
 - [`results/experiment_log.md`](results/experiment_log.md) — a complete
   written record of every experiment in the project (pretrained baseline,
-  ONNX export, SCNN-only training trajectory through all 200 epochs,
-  Conv-TasNet plan, footprint analysis).
+  ONNX export, SCNN-only training trajectory, footprint analysis).
 
 ---
 
@@ -113,11 +106,11 @@ this fork adds:
 |---|---|
 | 1 — Environment & data prep | done |
 | 2 — Pretrained ONNX export + validation | done (8.2 MB FP32, diff 4.01e-05) |
-| 3 — SCNN-only N=128 training | done (200 epochs, **9.52 dB SI-SNR** @ epoch 163) |
-| 4 — Conv-TasNet baseline | implemented, training pending |
-| 5 — SCNN-only ONNX export + validation | done (2.9 MB FP32, diff 9.16e-05) |
-| 6 — INT8 quantization | script ready, run pending |
-| 7 — STM32 deployment | footprint analyzed, X-CUBE-AI work pending |
+| 3 — SCNN-only N=128 training | retrain in progress (9.52 dB run discarded; full VoiceBank-DEMAND, plateau-stop) |
+| 4 — Conv-TasNet baseline | dropped (too large for embedded target) |
+| 5 — Pretrained INT8 quantization | in progress (pipeline validation on N=256 model) |
+| 6 — SCNN-only ONNX + INT8 | pending Phase 3 completion |
+| 7 — STM32 deployment | pending Phase 6 |
 
 ### Pretrained N=256 baseline (full 824-sample VoiceBank test set)
 
@@ -127,18 +120,18 @@ this fork adds:
 | PESQ (wb) | 1.97 | **2.26** | 4.64 |
 | STOI | 0.921 | **0.925** | 1.00 |
 
-### SCNN-only N=128 (our trained variant)
+### SCNN-only N=128 (training in progress)
 
 | Property | Value |
 |---|---|
 | Parameters | 57,476 |
-| Best val SI-SNR | **9.52 dB** (epoch 163) |
-| FP32 ONNX size | 2,943 KB |
-| Estimated INT8 weights | ~56 KB (well under 2 MB Flash) |
+| Epoch 0 val SI-SNR | **15.39 dB** (already above 15 dB target) |
+| Root cause of prior 9.52 dB result | `frame_dur=0.5` (199 steps) instead of `frame_dur=1.0` (399 steps) |
+| Estimated INT8 Flash | ~56 KB (well under 2 MB) |
 | Estimated peak RAM | ~463 KB (under 786 KB) |
 
-Full per-epoch trajectory: see
-[`results/experiment_log.md`](results/experiment_log.md).
+Training continues — expect plateau around 16–17 dB. See
+[`results/experiment_log.md`](results/experiment_log.md) for full trajectory.
 
 ---
 
@@ -165,7 +158,7 @@ dpsnn-embedded-deployment/
 ├── evaluation/
 │   └── eval_onnx.py             # Full 824-utterance test (SI-SNR/PESQ/STOI)
 ├── convtasnet/
-│   └── model.py                 # Conv-TasNet baseline
+│   └── model.py                 # Conv-TasNet (dropped — kept for reference)
 ├── results/
 │   └── experiment_log.md        # Detailed write-up of every experiment
 ├── audio_demos/                 # Upstream demo outputs
@@ -216,24 +209,25 @@ This resamples to 16 kHz and writes `data/results/save/{train,valid,test}.{csv,h
 cd egs/voicebank
 PYTHONPATH=../../ python -u vctk_trainer.py --config vctk.yaml \
     -L 80 --stride 40 -N 128 -B 128 -H 128 \
-    --context_dur 0.01 --frame_dur 0.5 --max_epochs 200 -X 1 --lr 1e-2 \
-    --device_num 1 --scnn_only --batch_size 64
+    --context_dur 0.01 --frame_dur 1.0 --max_epochs 200 -X 1 --lr 1e-2 \
+    --device_num 1 --scnn_only --batch_size 32
 ```
 
 Top-3 checkpoints by val_loss are saved under
-`egs/voicebank/lightning_logs/version_N/checkpoints/`.
+`egs/voicebank/lightning_logs/version_N/checkpoints/`. Training stops
+automatically when val_loss plateaus (EarlyStopping patience=10). If OOM,
+reduce `--frame_dur` to 0.5 and increase `--batch_size` to 64.
 
 ### 3. Export and validate ONNX
 
 ```bash
 python export/export_to_onnx.py \
-    --ckpt_path egs/voicebank/lightning_logs/version_9/checkpoints/epoch=163-val_loss=90.5477-val_sisnr=-9.5152.ckpt \
+    --ckpt_path egs/voicebank/lightning_logs/version_N/checkpoints/<best>.ckpt \
     --output_path export/dpsnn_scnn128.onnx
 
 python export/validate_onnx.py \
-    --ckpt_path egs/voicebank/lightning_logs/version_9/checkpoints/epoch=163-val_loss=90.5477-val_sisnr=-9.5152.ckpt \
-    --onnx_path export/dpsnn_scnn128.onnx \
-    --model dpsnn
+    --ckpt_path egs/voicebank/lightning_logs/version_N/checkpoints/<best>.ckpt \
+    --onnx_path export/dpsnn_scnn128.onnx
 ```
 
 ### 4. INT8-quantize
@@ -249,8 +243,15 @@ python export/quantize_int8.py \
 ### 5. Evaluate FP32 vs INT8 on the full test set
 
 ```bash
-python evaluation/eval_onnx.py --onnx_path export/dpsnn_scnn128.onnx
-python evaluation/eval_onnx.py --onnx_path export/dpsnn_scnn128_int8.onnx
+python evaluation/eval_onnx.py \
+    --onnx_path export/dpsnn_scnn128.onnx \
+    --hdf5_path data/results/save/test.hdf5 \
+    --output_path results/eval_scnn128_fp32.txt
+
+python evaluation/eval_onnx.py \
+    --onnx_path export/dpsnn_scnn128_int8.onnx \
+    --hdf5_path data/results/save/test.hdf5 \
+    --output_path results/eval_scnn128_int8.txt
 ```
 
 ### 6. Check embedded footprint

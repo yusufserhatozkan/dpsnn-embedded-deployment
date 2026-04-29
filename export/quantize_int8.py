@@ -3,16 +3,26 @@
 Uses onnxruntime.quantization.quantize_static with QDQ format and a
 calibration dataset drawn from the VoiceBank-DEMAND test HDF5 file.
 
-Usage (from repo root):
+Default config (matches the "naive INT8" baseline that failed at 6.45 dB):
+    per-channel, Percentile (99.999), asymmetric activations, INT8 weights+acts.
+
+To run a mixed-precision experiment (skip spike-neuron ops):
     python export/quantize_int8.py \\
-        --onnx_path  export/dpsnn_scnn128.onnx \\
-        --hdf5_path  data/results/save/test.hdf5 \\
-        --output_path export/dpsnn_scnn128_int8.onnx \\
-        --n_calib 100
+        --onnx_path   export/dpsnn_pretrained.onnx \\
+        --hdf5_path   data/results/save/test.hdf5 \\
+        --output_path export/dpsnn_pretrained_int8_mixed.onnx \\
+        --op_types_to_quantize Conv MatMul Gemm \\
+        --calibrate_method Entropy --n_calib 200
+
+To try entropy calibration on the full graph:
+    python export/quantize_int8.py ... --calibrate_method Entropy
+
+To do weight-only quantization (acts stay FP32):
+    python export/quantize_int8.py ... --weight_only
 
 Output files:
-    <output_path>              — INT8 QDQ ONNX model
-    <output_path>.metrics.txt — calibration-set quality snapshot
+    <output_path>             - INT8 QDQ ONNX model
+    <output_path>.metrics.txt - calibration-set quality snapshot
 """
 from __future__ import annotations
 
@@ -85,22 +95,67 @@ def _make_calibration_data_reader(hdf5_path: str, input_dim: int, n_samples: int
 # Quantization
 # ---------------------------------------------------------------------------
 
+_CALIBRATION_METHODS = {
+    "MinMax":       "MinMax",
+    "Percentile":   "Percentile",
+    "Entropy":      "Entropy",
+    "Distribution": "Distribution",
+}
+
+_QUANT_TYPES = {
+    "QInt8":  "QInt8",
+    "QUInt8": "QUInt8",
+    "QInt16": "QInt16",
+    "QUInt16": "QUInt16",
+}
+
+
 def quantize(
     onnx_path: str,
     hdf5_path: str,
     output_path: str,
     n_calib: int = 100,
+    calibrate_method: str = "Percentile",
+    per_channel: bool = True,
+    activation_symmetric: bool = False,
+    activation_type: str = "QInt8",
+    weight_type: str = "QInt8",
+    percentile: float = 99.999,
+    op_types_to_quantize: list[str] | None = None,
+    nodes_to_exclude: list[str] | None = None,
+    weight_only: bool = False,
 ) -> None:
-    """Statically quantize an FP32 ONNX model to INT8 QDQ format.
+    """Statically quantize an FP32 ONNX model to a low-bit QDQ format.
 
-    Steps
-    -----
-    1. Pre-process the model to insert fake-quant nodes (required by ORT).
-    2. Run calibration on n_calib samples to determine quantization ranges.
-    3. Write INT8 QDQ model to output_path.
+    Parameters
+    ----------
+    calibrate_method
+        One of {MinMax, Percentile, Entropy, Distribution}. Entropy minimizes
+        KL divergence between FP32 and INT8 distributions and is recommended
+        for skewed activations (e.g., membrane potentials).
+    per_channel
+        Per-channel weight quantization. Almost always better than per-tensor.
+    activation_symmetric
+        If True, activation zero_point=0 (symmetric range). Better for ReLU /
+        post-spike outputs that are non-negative. Default False (asymmetric).
+    activation_type / weight_type
+        QInt8, QUInt8, QInt16, QUInt16. INT16 has 256x more headroom than
+        INT8 and is useful as a "less aggressive" mid-point experiment.
+    percentile
+        Used only when calibrate_method=Percentile. Clips extreme outliers.
+    op_types_to_quantize
+        If provided, ONLY these op types are quantized. Use this for mixed
+        precision: ['Conv', 'MatMul', 'Gemm'] keeps spike-neuron ops in FP32.
+    nodes_to_exclude
+        Specific node names to skip. Combine with op_types_to_quantize for
+        fine-grained control.
+    weight_only
+        If True, quantize weights only; activations stay FP32. Smallest model
+        with full-precision compute.
     """
     from onnxruntime.quantization import (
         quantize_static,
+        quantize_dynamic,
         QuantFormat,
         QuantType,
         CalibrationMethod,
@@ -119,27 +174,56 @@ def quantize(
     print(f"Pre-processing ONNX model -> {pre_path}")
     quant_pre_process(onnx_path, pre_path, skip_symbolic_shape=True)
 
-    # Step 2: calibration data reader
-    print(f"Loading calibration data from {hdf5_path} ({n_calib} samples) ...")
-    calib_reader = _make_calibration_data_reader(hdf5_path, input_dim, n_calib)
-
-    # Step 3: static quantization
     parent = os.path.dirname(output_path)
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    print(f"Quantizing -> {output_path} ...")
-    quantize_static(
-        model_input=pre_path,
-        model_output=output_path,
-        calibration_data_reader=calib_reader,
-        quant_format=QuantFormat.QDQ,
-        per_channel=False,          # per-tensor: simpler, more portable
-        activation_type=QuantType.QInt8,
-        weight_type=QuantType.QInt8,
-        calibrate_method=CalibrationMethod.MinMax,
-        extra_options={"ActivationSymmetric": True},
-    )
+    # Resolve enums from string args
+    calib_enum = getattr(CalibrationMethod, calibrate_method)
+    weight_enum = getattr(QuantType, weight_type)
+    act_enum = getattr(QuantType, activation_type)
+
+    # ---- Weight-only (no calibration needed) ----
+    if weight_only:
+        print(f"Weight-only quantization (activations stay FP32) -> {output_path} ...")
+        quantize_dynamic(
+            model_input=pre_path,
+            model_output=output_path,
+            weight_type=weight_enum,
+            per_channel=per_channel,
+            op_types_to_quantize=op_types_to_quantize,
+            nodes_to_exclude=nodes_to_exclude,
+        )
+    else:
+        # ---- Static quantization (with calibration) ----
+        print(f"Loading calibration data from {hdf5_path} ({n_calib} samples) ...")
+        calib_reader = _make_calibration_data_reader(hdf5_path, input_dim, n_calib)
+
+        extra_options = {"ActivationSymmetric": activation_symmetric}
+        if calibrate_method == "Percentile":
+            extra_options["percentile"] = percentile
+
+        print(
+            f"Quantizing -> {output_path}\n"
+            f"  method={calibrate_method}  per_channel={per_channel}  "
+            f"act_sym={activation_symmetric}\n"
+            f"  weight={weight_type}  activation={activation_type}\n"
+            f"  op_types_to_quantize={op_types_to_quantize}\n"
+            f"  nodes_to_exclude={'(' + str(len(nodes_to_exclude)) + ' nodes)' if nodes_to_exclude else None}"
+        )
+        quantize_static(
+            model_input=pre_path,
+            model_output=output_path,
+            calibration_data_reader=calib_reader,
+            quant_format=QuantFormat.QDQ,
+            per_channel=per_channel,
+            activation_type=act_enum,
+            weight_type=weight_enum,
+            calibrate_method=calib_enum,
+            op_types_to_quantize=op_types_to_quantize,
+            nodes_to_exclude=nodes_to_exclude,
+            extra_options=extra_options,
+        )
 
     # Cleanup temp file
     if os.path.exists(pre_path):
@@ -147,8 +231,9 @@ def quantize(
 
     fp32_kb = os.path.getsize(onnx_path) / 1024
     int8_kb = os.path.getsize(output_path) / 1024
-    print(f"\nFP32: {fp32_kb:.1f} KB  →  INT8: {int8_kb:.1f} KB  "
-          f"(compression: {fp32_kb/int8_kb:.1f}×)")
+    ratio = fp32_kb / int8_kb if int8_kb > 0 else float("nan")
+    print(f"\nFP32: {fp32_kb:.1f} KB  ->  Quantized: {int8_kb:.1f} KB  "
+          f"(compression: {ratio:.2f}x)")
 
 
 # ---------------------------------------------------------------------------
@@ -222,22 +307,91 @@ def quality_snapshot(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="INT8 static quantization of a speech-enhancement ONNX model")
-    parser.add_argument("--onnx_path",   required=True,
-                        help="Input FP32 ONNX model")
-    parser.add_argument("--hdf5_path",   required=True,
-                        help="VoiceBank-DEMAND test HDF5 (data/results/save/test.hdf5)")
-    parser.add_argument("--output_path", required=True,
-                        help="Output INT8 ONNX model path")
+        description="Static / weight-only quantization of a speech-enhancement ONNX model",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    # I/O
+    parser.add_argument("--onnx_path",   required=True, help="Input FP32 ONNX model")
+    parser.add_argument("--hdf5_path",   required=False,
+                        help="VoiceBank-DEMAND test HDF5 (required unless --weight_only)")
+    parser.add_argument("--output_path", required=True, help="Output quantized ONNX model")
     parser.add_argument("--n_calib",     type=int, default=100,
-                        help="Number of calibration samples (default: 100)")
+                        help="Number of calibration samples (static only)")
     parser.add_argument("--no_snapshot", action="store_true",
-                        help="Skip quality snapshot after quantization")
+                        help="Skip the post-quantization SI-SNR snapshot")
+
+    # Calibration / number-format knobs
+    parser.add_argument("--calibrate_method", default="Percentile",
+                        choices=list(_CALIBRATION_METHODS.keys()),
+                        help="Calibration strategy")
+    parser.add_argument("--percentile", type=float, default=99.999,
+                        help="Percentile clip (only used when --calibrate_method=Percentile)")
+    parser.add_argument("--no_per_channel", action="store_true",
+                        help="Disable per-channel weight quantization (use per-tensor)")
+    parser.add_argument("--activation_symmetric", action="store_true",
+                        help="Use symmetric activation quantization (zero_point=0)")
+    parser.add_argument("--activation_type", default="QInt8",
+                        choices=list(_QUANT_TYPES.keys()),
+                        help="Activation number format")
+    parser.add_argument("--weight_type", default="QInt8",
+                        choices=list(_QUANT_TYPES.keys()),
+                        help="Weight number format")
+
+    # Spike-aware quantization (Tao's corrected method)
+    parser.add_argument("--spike_map", default=None,
+                        help="Path to JSON produced by map_spike_tensors.py.  "
+                             "Automatically populates --nodes_to_exclude with "
+                             "spike-path Conv/Gemm nodes (membrane potential "
+                             "inputs and spike outputs stay FP32).")
+
+    # Mixed precision
+    parser.add_argument("--op_types_to_quantize", nargs="+", default=None,
+                        help="If set, ONLY these op types are quantized "
+                             "(e.g. 'Conv MatMul Gemm' for mixed precision)")
+    parser.add_argument("--nodes_to_exclude", nargs="+", default=None,
+                        help="Specific node names to keep in FP32")
+
+    # Weight-only mode
+    parser.add_argument("--weight_only", action="store_true",
+                        help="Quantize weights only; activations stay FP32 (no calibration)")
+
     args = parser.parse_args()
 
-    quantize(args.onnx_path, args.hdf5_path, args.output_path, args.n_calib)
+    if not args.weight_only and not args.hdf5_path:
+        parser.error("--hdf5_path is required for static quantization "
+                     "(omit --hdf5_path only with --weight_only)")
 
-    if not args.no_snapshot:
+    # Load spike map and build exclusion list
+    nodes_to_exclude = args.nodes_to_exclude or []
+    if args.spike_map:
+        import json
+        with open(args.spike_map) as f:
+            spike_data = json.load(f)
+        spike_exclude = (spike_data.get("spike_nodes", [])
+                         + spike_data.get("unknown_nodes", []))
+        nodes_to_exclude = list(set(nodes_to_exclude + spike_exclude))
+        print(f"Spike map loaded: {len(spike_exclude)} nodes excluded "
+              f"(spike-path Conv/Gemm/ConvTranspose stay FP32)")
+        print(f"  SAFE nodes to quantize: {spike_data['stats']['safe']}")
+        print(f"  SPIKE nodes excluded:   {len(spike_exclude)}")
+
+    quantize(
+        onnx_path=args.onnx_path,
+        hdf5_path=args.hdf5_path,
+        output_path=args.output_path,
+        n_calib=args.n_calib,
+        calibrate_method=args.calibrate_method,
+        per_channel=not args.no_per_channel,
+        activation_symmetric=args.activation_symmetric,
+        activation_type=args.activation_type,
+        weight_type=args.weight_type,
+        percentile=args.percentile,
+        op_types_to_quantize=args.op_types_to_quantize,
+        nodes_to_exclude=nodes_to_exclude if nodes_to_exclude else None,
+        weight_only=args.weight_only,
+    )
+
+    if not args.no_snapshot and args.hdf5_path:
         import onnx
         proto = onnx.load(args.onnx_path)
         input_dim = proto.graph.input[0].type.tensor_type.shape.dim[1].dim_value
