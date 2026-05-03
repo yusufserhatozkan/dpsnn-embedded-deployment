@@ -4,7 +4,7 @@
 > [`tao-sun/dpsnn`](https://github.com/tao-sun/dpsnn) (Sun & Bohté 2024,
 > *Neuromorphic Computing and Engineering*). The upstream README is preserved
 > below. Everything in this repo beyond the upstream content is part of a
-> master's thesis on hardware-aware deployment of speech enhancement models
+> bachelor's thesis on hardware-aware deployment of speech enhancement models
 > to embedded IoT hardware.
 
 ---
@@ -106,22 +106,26 @@ this fork adds:
 |---|---|
 | 1 — Environment & data prep | done |
 | 2 — Pretrained ONNX export + validation | done (8.2 MB FP32, diff 4.01e-05) |
-| 3 — SCNN-only N=128 training | done — best val SI-SNR **17.60 dB** (epoch 39, gradient clipping) |
+| 3 — SCNN-only N=128 training | done — 57,476 params, test FP32 SI-SNR **17.23 dB** |
 | 4 — Conv-TasNet baseline | dropped (too large for embedded target) |
-| 5 — INT8 quantization study | done — weight-only INT8 selected for deployment (−0.31 dB, 140.9 KB) |
-| 6 — SCNN-only ONNX export + footprint | done — 5.6 MB FP32 ONNX, 278.5 KB weights, 125.6 KB I/O RAM |
+| 5 — INT8 quantization study | done — spike-aware shared-scale QDQ, pct95 best at **−0.24 dB** |
+| 6 — SCNN-only ONNX export + footprint | done — 278.5 KB FP32 weights → 140.9 KB INT8, 125.6 KB I/O RAM |
 | 7 — STM32 deployment | in progress — X-CUBE-AI Analyse next |
 
-### SCNN-only N=128 — full 824-sample VoiceBank test set
+### SCNN-only N=128 — full quantization comparison (824-sample VoiceBank test)
 
-| Metric | Noisy | FP32 | Weight-only INT8 | Pretrained N=256 (ref) |
-|---|---|---|---|---|
-| SI-SNR (dB) | 8.44 | **17.23** | **16.92** | 18.08 |
-| PESQ (wb) | 1.971 | 2.089 | 1.757 | 2.264 |
-| STOI | 0.921 | 0.920 | 0.916 | 0.925 |
+| Model | SI-SNR | PESQ | STOI | OVRL | SIG | BAK |
+|---|---|---|---|---|---|---|
+| Noisy input | 8.44 | 1.971 | 0.921 | 2.637 | 3.357 | 2.445 |
+| FP32 ONNX | **17.23** | 2.089 | 0.920 | 2.480 | 2.935 | 2.909 |
+| Standard ORT INT8 | ~7–8 | ~1.3 | ~0.84 | — | — | — |
+| Weight-only INT8 | 16.92 | 1.757 | 0.916 | 1.825 | 2.007 | 2.655 |
+| Spike-aware pct99.9 | 16.95 | 1.756 | 0.915 | 1.921 | 2.170 | 2.698 |
+| Spike-aware pct99.0 | 16.96 | 1.765 | 0.916 | 1.933 | 2.187 | 2.699 |
+| **Spike-aware pct95 (deployed)** | **16.99** | **1.783** | **0.916** | **1.966** | **2.233** | **2.712** |
 
-71.3 K params vs ~373 K pretrained — 5× smaller, −0.85 dB SI-SNR penalty.
-See [`results/experiment_log.md`](results/experiment_log.md) for full details.
+57,476 params vs ~373 K pretrained — 6.5× smaller, −0.24 dB SI-SNR at INT8.
+See [`results/log_quantization.md`](results/log_quantization.md) for the full study.
 
 ---
 

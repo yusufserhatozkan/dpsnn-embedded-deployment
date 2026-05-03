@@ -229,6 +229,53 @@ def compute_per_channel_scale_zp(weight: np.ndarray, axis: int = 0):
 # ONNX graph modification
 # ---------------------------------------------------------------------------
 
+def insert_int16_sim_after_tensor(graph, tensor_name: str, scale: float,
+                                   suffix: str) -> str:
+    """Simulate INT16 activation quantization via Div → Round → Clip → Mul.
+
+    Compatible with ONNX opset 13 (QuantizeLinear only supports int8 in opset 13;
+    INT16 native support requires opset 21). Produces identical quantization noise
+    to true INT16 with scale = max_val / 32767 and zero_point = 0.
+
+    Clip range [0, 32767] is appropriate for non-negative activations (ReLU, Sigmoid).
+    """
+    div_out   = f'{tensor_name}_div16_{suffix}'
+    round_out = f'{tensor_name}_rnd16_{suffix}'
+    clip_out  = f'{tensor_name}_clp16_{suffix}'
+    mul_out   = f'{tensor_name}_dq16_{suffix}'
+    scale_name = f'{tensor_name}_s16_{suffix}'
+    cmin_name  = f'{tensor_name}_cmin_{suffix}'
+    cmax_name  = f'{tensor_name}_cmax_{suffix}'
+
+    graph.initializer.extend([
+        numpy_helper.from_array(np.array(scale,      dtype=np.float32), name=scale_name),
+        numpy_helper.from_array(np.array(0.0,        dtype=np.float32), name=cmin_name),
+        numpy_helper.from_array(np.array(32767.0,    dtype=np.float32), name=cmax_name),
+    ])
+
+    div_node = helper.make_node('Div',   [tensor_name, scale_name],     [div_out],
+                                name=f'Div16_{tensor_name}_{suffix}')
+    graph.node.extend([
+        div_node,
+        helper.make_node('Round', [div_out],                             [round_out],
+                         name=f'Round16_{tensor_name}_{suffix}'),
+        helper.make_node('Clip',  [round_out, cmin_name, cmax_name],    [clip_out],
+                         name=f'Clip16_{tensor_name}_{suffix}'),
+        helper.make_node('Mul',   [clip_out, scale_name],               [mul_out],
+                         name=f'Mul16_{tensor_name}_{suffix}'),
+    ])
+
+    div_node_name = div_node.name
+    for node in graph.node:
+        if node.name == div_node_name:
+            continue
+        for j, inp in enumerate(node.input):
+            if inp == tensor_name:
+                node.input[j] = mul_out
+
+    return mul_out
+
+
 def insert_qdq_after_tensor(graph, tensor_name: str, scale: float, zp: int,
                              suffix: str) -> str:
     """Insert a Q→DQ pair after `tensor_name`.
@@ -337,14 +384,25 @@ def quantize_spike_aware_correct(
     output_path: str,
     n_calib: int = 50,
     quantize_spike_weights: bool = True,
+    relu_percentile: float = 100.0,
+    activation_bits: int = 8,
 ) -> None:
-    """Apply the supervisor's correct spike-aware INT8 quantization.
+    """Apply the supervisor's correct spike-aware quantization.
 
     Strategy:
     - INT8 weights for ALL Conv (SAFE + SPIKE paths if quantize_spike_weights=True)
-    - INT8 activations ONLY at ReLU output (encoder) and Sigmoid output (mask)
+    - Activations ONLY at ReLU output (encoder) and Sigmoid output (mask)
     - Partial sums (between Conv and ReLU/Sigmoid) stay FP32
     - Membrane potentials and spike outputs stay FP32
+
+    activation_bits=8  → INT8 QDQ (QuantizeLinear/DequantizeLinear, opset 13)
+    activation_bits=16 → INT16-simulated via Div→Round→Clip→Mul (opset 13 compatible)
+                         scale = calibrated_max / 32767, zero_point = 0
+
+    relu_percentile controls the shared ReLU scale upper bound.
+    100.0 = absolute max (default, no clipping).
+    Lower values (e.g. 95.0) clip extreme outlier time steps so that typical
+    frames get finer quantization resolution, at the cost of saturating rare peaks.
     """
     # ── Load spike map ──────────────────────────────────────────────────────
     with open(spike_map_path) as f:
@@ -379,32 +437,53 @@ def quantize_spike_aware_correct(
     # steps — this matches real hardware (X-CUBE-AI uses one scale per layer).
     relu_scale = np.float32(1e-8)
     relu_zp = np.int8(0)
+    global_max = 1.0
     if relu_tensors:
         print(f"Calibrating {len(relu_tensors)} ReLU tensors on {n_calib} samples...")
         relu_stats = calibrate(prep_path, relu_tensors, hdf5_path, n_calib)
+        all_max_vals = [v[1] for v in relu_stats.values()]
         global_min = min(v[0] for v in relu_stats.values())
-        global_max = max(v[1] for v in relu_stats.values())
+        global_max = float(np.percentile(all_max_vals, relu_percentile))
         relu_scale, relu_zp = compute_asymmetric_scale_zp(global_min, global_max)
-        print(f"  Global ReLU range: [{global_min:.4f}, {global_max:.4f}]")
+        abs_max = max(all_max_vals)
+        print(f"  Absolute max across all time steps: {abs_max:.4f}")
+        print(f"  {relu_percentile}th-percentile max used for scale: {global_max:.4f}")
         print(f"  Shared ReLU scale: {relu_scale:.6f}, zp: {relu_zp}")
 
-    # Fixed scale for Sigmoid: maps [-128, 127] exactly onto [0, 1]
-    # DequantizeLinear: x = (q - zp) * scale → (q - (-128)) * (1/255) ∈ [0, 1]
-    sigmoid_scale = np.float32(1.0 / 255.0)
-    sigmoid_zp = np.int8(-128)
+    # Fixed scale for Sigmoid (output always in [0, 1])
+    # INT8:  maps [-128, 127] → [0, 1], scale = 1/255, zp = -128
+    # INT16: maps [0, 32767]  → [0, 1], scale = 1/32767, zp = 0
+    sigmoid_scale_int8 = np.float32(1.0 / 255.0)
+    sigmoid_zp_int8 = np.int8(-128)
+    sigmoid_scale_int16 = float(1.0 / 32767.0)
     if sigmoid_tensors:
-        print(f"  Fixed Sigmoid scale: {sigmoid_scale:.6f}, zp: {sigmoid_zp}")
+        if activation_bits == 16:
+            print(f"  Fixed Sigmoid INT16 scale: {sigmoid_scale_int16:.8f}")
+        else:
+            print(f"  Fixed Sigmoid INT8 scale: {sigmoid_scale_int8:.6f}, zp: {sigmoid_zp_int8}")
 
-    # ── Insert Q→DQ after ReLU and Sigmoid activations ──────────────────────
-    print(f"Inserting Q->DQ nodes...")
-    for i, tensor_name in enumerate(relu_tensors):
-        insert_qdq_after_tensor(graph, tensor_name, float(relu_scale), int(relu_zp),
-                                suffix=f'relu_{i}')
-    for i, tensor_name in enumerate(sigmoid_tensors):
-        insert_qdq_after_tensor(graph, tensor_name, float(sigmoid_scale), int(sigmoid_zp),
-                                suffix=f'sig_{i}')
-    print(f"  Inserted {len(relu_tensors)} ReLU Q->DQ pairs (shared scale)")
-    print(f"  Inserted {len(sigmoid_tensors)} Sigmoid Q->DQ pairs (fixed scale)")
+    # ── Insert activation quantization nodes ────────────────────────────────
+    if activation_bits == 16:
+        relu_scale_int16 = float(global_max / 32767.0) if global_max > 0 else 1e-8
+        print(f"Inserting INT16-simulated Div→Round→Clip→Mul nodes (scale={relu_scale_int16:.8f})...")
+        for i, tensor_name in enumerate(relu_tensors):
+            insert_int16_sim_after_tensor(graph, tensor_name, relu_scale_int16,
+                                          suffix=f'relu_{i}')
+        for i, tensor_name in enumerate(sigmoid_tensors):
+            insert_int16_sim_after_tensor(graph, tensor_name, sigmoid_scale_int16,
+                                          suffix=f'sig_{i}')
+        print(f"  Inserted {len(relu_tensors)} ReLU INT16 sim nodes (shared scale)")
+        print(f"  Inserted {len(sigmoid_tensors)} Sigmoid INT16 sim nodes (fixed scale)")
+    else:
+        print(f"Inserting INT8 Q->DQ nodes...")
+        for i, tensor_name in enumerate(relu_tensors):
+            insert_qdq_after_tensor(graph, tensor_name, float(relu_scale), int(relu_zp),
+                                    suffix=f'relu_{i}')
+        for i, tensor_name in enumerate(sigmoid_tensors):
+            insert_qdq_after_tensor(graph, tensor_name, float(sigmoid_scale_int8),
+                                    int(sigmoid_zp_int8), suffix=f'sig_{i}')
+        print(f"  Inserted {len(relu_tensors)} ReLU Q->DQ pairs (shared scale)")
+        print(f"  Inserted {len(sigmoid_tensors)} Sigmoid Q->DQ pairs (fixed scale)")
 
     # ── Quantize Conv weights to INT8 ────────────────────────────────────────
     nodes_to_quantize_weights = all_weight_nodes if quantize_spike_weights else safe_node_names
@@ -443,6 +522,16 @@ def main():
     parser.add_argument('--hdf5_path',   required=True)
     parser.add_argument('--output_path', required=True)
     parser.add_argument('--n_calib',     type=int, default=50)
+    parser.add_argument('--relu_percentile', type=float, default=100.0,
+                        help='Percentile of per-time-step max values used to set the shared '
+                             'ReLU scale. 100=absolute max (no clipping). Lower values '
+                             '(e.g. 95.0) give finer resolution for typical frames at the '
+                             'cost of saturating rare peaks.')
+    parser.add_argument('--activation_bits', type=int, default=8, choices=[8, 16],
+                        help='Bit-width for activation quantization. '
+                             '8=INT8 QDQ (QuantizeLinear/DequantizeLinear). '
+                             '16=INT16-simulated via Div→Round→Clip→Mul (opset-13 compatible, '
+                             'scale=calibrated_max/32767). Weights always INT8.')
     parser.add_argument('--safe_weights_only', action='store_true',
                         help='Only quantize weights of SAFE Conv nodes (spike path stays FP32)')
     args = parser.parse_args()
@@ -454,6 +543,8 @@ def main():
         output_path=args.output_path,
         n_calib=args.n_calib,
         quantize_spike_weights=not args.safe_weights_only,
+        relu_percentile=args.relu_percentile,
+        activation_bits=args.activation_bits,
     )
 
 
