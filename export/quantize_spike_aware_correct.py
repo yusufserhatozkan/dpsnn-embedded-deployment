@@ -465,7 +465,7 @@ def quantize_spike_aware_correct(
     # ── Insert activation quantization nodes ────────────────────────────────
     if activation_bits == 16:
         relu_scale_int16 = float(global_max / 32767.0) if global_max > 0 else 1e-8
-        print(f"Inserting INT16-simulated Div→Round→Clip→Mul nodes (scale={relu_scale_int16:.8f})...")
+        print(f"Inserting INT16-simulated Div->Round->Clip->Mul nodes (scale={relu_scale_int16:.8f})...")
         for i, tensor_name in enumerate(relu_tensors):
             insert_int16_sim_after_tensor(graph, tensor_name, relu_scale_int16,
                                           suffix=f'relu_{i}')

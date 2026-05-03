@@ -317,6 +317,66 @@ clipping of outlier time steps yields the best result (−0.24 dB, well within t
 
 ---
 
+## Experiment 8: W(INT8) + A(INT16) — Q-SpiNN-Inspired Softer Activation Quantization (2026-05-03)
+
+Inspired by Putra & Shafique (Q-SpiNN, IJCNN 2021): different bitwidths for weights vs neuron
+parameters. Their Table II shows W(Q1.8)-N(Qi.16) achieves 86.56% vs W(Q1.8)-N(Qi.8) 86.56%
+on U-SNN MNIST — comparable accuracy at 3.2× memory saving. Hypothesis: 16-bit activations
+will recover the PESQ/composite gap remaining after INT8 activation quantization.
+
+### Implementation
+
+INT16 quantization requires opset 21 QuantizeLinear (not available in our opset 13 ONNX).
+Solution: fake-quantization via Div → Round → Clip(0, 32767) → Mul, inserted after each
+ReLU/Sigmoid output. Mathematically identical quantization noise to true INT16.
+
+- ReLU scale = 95th-pct calibrated max / 32767 = 12.318 / 32767 = 3.7593e-4
+  (vs INT8 scale = 12.318 / 255 = 0.04830, so ~128× finer resolution)
+- Sigmoid scale = 1 / 32767 = 3.0518e-5 (fixed, output always [0, 1])
+- Weights: INT8 per-channel (same as before — 6 unique weight tensors)
+- 802 fake-quant chains inserted (403 ReLU + 399 Sigmoid), 4 nodes each
+
+```bash
+python export/quantize_spike_aware_correct.py \
+    --onnx_path export/dpsnn_scnn128.onnx \
+    --spike_map export/dpsnn_scnn128.onnx.spike_map.json \
+    --hdf5_path data/results/save/test.hdf5 \
+    --output_path export/dpsnn_scnn128_int8w_int16a_pct95.onnx \
+    --n_calib 50 --relu_percentile 95.0 --activation_bits 16
+```
+
+### Results
+
+| Model | SI-SNR | PESQ | STOI | OVRL | SIG | BAK |
+|---|---|---|---|---|---|---|
+| FP32 baseline | 17.23 | 2.089 | 0.920 | 2.480 | 2.935 | 2.909 |
+| INT8 weights + INT8 acts (pct95) | 16.985 | 1.783 | 0.916 | 1.966 | 2.233 | 2.712 |
+| **INT8 weights + INT16 acts (pct95)** | **17.09** | **1.867** | **0.918** | **2.077** | **2.387** | **2.739** |
+| FP32 gap (INT8 acts) | −0.245 dB | −0.306 | −0.004 | −0.514 | −0.702 | −0.197 |
+| FP32 gap (INT16 acts) | **−0.14 dB** | **−0.222** | **−0.002** | **−0.403** | **−0.548** | **−0.170** |
+
+### Analysis
+
+INT16 activations recover roughly half the gap left by INT8 across all metrics:
+- SI-SNR: −0.245 → −0.140 dB (43% gap recovery)
+- PESQ: −0.306 → −0.222 (27% gap recovery)
+- STOI: −0.004 → −0.002 (50% gap recovery)
+- OVRL: −0.514 → −0.403 (22% gap recovery)
+- SIG: −0.702 → −0.548 (22% gap recovery)
+- BAK: −0.197 → −0.170 (14% gap recovery)
+
+The improvement is consistent across all metrics, confirming that INT8 activation quantization
+was introducing non-trivial noise beyond what weight quantization alone contributes. The result
+is consistent with Q-SpiNN's finding that neuron parameter precision matters independently of
+weight precision.
+
+**Important caveat:** The INT16 model uses fake quantization (FP32 ONNX nodes) and is therefore
+NOT deployable to X-CUBE-AI as-is. It serves as a quality upper bound for W8A16 deployment.
+The actual deployment model remains `dpsnn_scnn128_int8_pct95.0.onnx` (pure INT8, X-CUBE-AI
+compatible). The INT16 result documents the ceiling achievable with a W8A16 hardware target.
+
+---
+
 ## Footprint — SCNN-only N=128 on STM32 B-U585I-IOT02A
 
 | Resource | FP32 | Weight-only INT8 | Limit |

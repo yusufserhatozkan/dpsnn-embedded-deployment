@@ -123,8 +123,11 @@ this fork adds:
 | Spike-aware pct99.9 | 16.95 | 1.756 | 0.915 | 1.921 | 2.170 | 2.698 |
 | Spike-aware pct99.0 | 16.96 | 1.765 | 0.916 | 1.933 | 2.187 | 2.699 |
 | **Spike-aware pct95 (deployed)** | **16.99** | **1.783** | **0.916** | **1.966** | **2.233** | **2.712** |
+| W8A16 pct95 (quality ceiling) | 17.09 | 1.867 | 0.918 | 2.077 | 2.387 | 2.739 |
 
 57,476 params vs ~373 K pretrained — 6.5× smaller, −0.24 dB SI-SNR at INT8.
+W8A16 row uses fake-quantization (FP32 ONNX, not deployable) — documents the quality
+ceiling achievable with a 16-bit activation hardware target.
 See [`results/log_quantization.md`](results/log_quantization.md) for the full study.
 
 ---
