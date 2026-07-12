@@ -1,0 +1,17 @@
+Expecting 1662 frames (66480 samples, 265920 bytes)
+Python ONNX reference SI-SNR: 15.98 dB
+
+Opening COM3 @ 115200 baud...
+Waiting for AUDIO_START marker (press RESET on board if needed)...
+Got AUDIO_START, receiving audio...
+Received 66480 samples (4.16 s)
+
+TIMING:2.564 ms/frame RTF:1.025
+
+--- Results ---
+MCU SI-SNR:    15.98 dB
+Python ref:    15.98 dB
+Delta:         -0.00 dB  PASS
+
+Saved MCU enhanced audio: deploy/conf_ref_decmatvec_n64/mcu_enhanced.wav
+Results written: deploy/conf_ref_decmatvec_n64\mcu_test_results.txt

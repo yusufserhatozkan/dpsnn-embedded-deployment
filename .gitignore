@@ -1,0 +1,51 @@
+/data
+*.hdf5
+*.ckpt
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+results/enhanced/
+results/audio/
+results/train_*_log.txt
+/docs/superpowers
+egs/voicebank/lightning_logs/
+lightning_logs/
+st_ai_ws/
+st_ai_output/*_c_info.json
+export/*.onnx
+/report 
+/figures
+plot_input_output.py
+LAUNCH_RETRAINS.md
+/figures
+/audio_demos
+/presentation
+
+CLAUDE.md
+.claude/
+.cursor/
+.aider*
+.agents/
+skills-lock.json
+
+# Lecture PDFs and personal notes
+*.pdf
+
+# Throwaway diagnostic / binary-search scripts
+export/_check_*.py
+
+# Intermediate spike-map variants (keep only the main one)
+export/*.spike_map_*_only.json
+
+# Per-experiment metrics snapshots for discarded pretrained-model attempts
+export/dpsnn_pretrained_*.metrics.txt
+
+# Bulky logs / discarded-experiment (exp9) reports — excluded from clean branch
+results/exp10_n64_train.log
+st_ai_output/dpsnn_exp9_bn_nooverlap_analyze_report.txt
+st_ai_output/dpsnn_exp9_bn_nooverlap_int8_analyze_report.txt
+
+# Deployable models for the submission — kept despite the *.ckpt / *.onnx ignores above
+!models/
+!models/*.ckpt
+!models/*.onnx

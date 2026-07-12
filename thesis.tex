@@ -1,0 +1,425 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{comment}
+\usepackage{verbatim}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Hardware-Aware Optimization and Benchmarking of Low-Latency Speech Enhancement Models on Embedded Internet-of-Things Platforms\\
+\thanks{This thesis was prepared in partial fulfilment of the requirements for the Degree of Bachelor of Computer Science, Maastricht University. Supervisor(s): Tao Sun, Guangzhi Tang}
+}
+
+\author{\IEEEauthorblockN{Yusuf Serhat Özkan}
+\IEEEauthorblockA{\textit{Department of Advanced Computing Sciences} \\
+\textit{Faculty of Science and Engineering}\\
+\textit{Maastricht University}\\
+Maastricht, The Netherlands}
+}
+
+\maketitle
+
+\begin{abstract}
+Spiking neural networks (SNNs) are studied as an operation-sparse alternative to conventional Deep neural networks (DNNs) for speech enhancement, but their reported operation-count and latency advantages are usually derived from synaptic-operation tallies on the trained graph rather than from measurements on real microcontrollers. This paper takes the SCNN-only configuration of the Dual-Path Spiking Neural Network (DPSNN) end-to-end onto an STM32U585 (ARM Cortex-M33 at 160~MHz, 786~KB internal SRAM, 2~MB Flash) and characterises what it costs to make the model run. The default whole-utterance graph does not fit: peak activation memory is $1.37$~MiB, $1.82\times$ over the SRAM budget. A per-tensor analysis attributes the overflow to an overlap-add reconstruction chain in the decoder rather than to weight storage, so standard INT8 weight quantization does not solve it. We reformulate the network as a single-frame streaming graph with $3.2$~KB of explicit recurrent state, which collapses peak activations by $30.5\times$ to $46$~KB without changing the output. The deployed FP32 model reaches $17.42$~dB SI-SNR on VoiceBank-DEMAND (within $0.66$~dB of the larger $N{=}256$ ceiling at $5.2\times$ fewer parameters) and runs at $6.145$~ms per frame on the device, $2.46\times$ the $2.5$~ms algorithmic stride. A channel-reduced $N{=}64$ variant of the same network trades $0.72$~dB of SI-SNR for a $2.26\times$ speed-up, bringing the real-time factor to $1.086\times$ ($8.6\%$ over the per-frame budget) on the same MCU. Both variants match the offline ONNX reference to within $5 \times 10^{-4}$~dB on a real noisy utterance.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Speech enhancement, spiking neural networks, embedded deep learning, ARM Cortex-M, edge computing, streaming inference.
+\end{IEEEkeywords}
+
+%-----------------------------------------------------------------------------------------------------------------
+
+\section{Introduction}
+Speech enhancement removes background noise from a noisy speech signal. It is a core component of hearing aids, telephony, and any audio interface that has to work in the real world. The field has changed in two important ways over the past decade. Deep neural networks (DNNs) replaced classical signal processing as the dominant approach to denoising and produced large gains on standard benchmarks. Moreover, more of these systems are now expected to run on small, battery-powered devices instead of in the cloud, for reasons of privacy, latency, and offline operation. A modern speech-enhancement network therefore has to be both accurate and small enough to fit on embedded hardware.
+
+Early deep-learning systems operated in the frequency domain: a network was applied to the short-time Fourier transform (STFT) of the noisy signal, and the enhanced waveform was reconstructed from the masked spectrogram. This pipeline carries an inherent latency, because the STFT window has to be long enough, typically 20 to 32 milliseconds, for the spectrum to be useful. Time-domain models such as TasNet ~\cite{b2} and Conv-TasNet~\cite{b3} removed that bottleneck by replacing the STFT with a learned encoder–decoder pair. They showed that strong denoising quality is reachable with frame sizes of only a few milliseconds, which directly cuts algorithmic latency. That matters for hearing-aid-class applications, where the end-to-end delay budget is tight.
+
+In parallel, spiking neural networks (SNNs) have been studied as a computationally sparse alternative to conventional DNNs. SNNs encode information as binary spike events, and downstream operations only fire when a spike arrives, so activation sparsity translates directly into fewer multiply-accumulate operations. This efficiency has now been carried into speech enhancement. The Intel N-DNS challenge winner, Spiking-FullSubNet~\cite{b1}, reaches quality close to DNN baselines at roughly an order of magnitude fewer effective operations, but inherits the 32-millisecond algorithmic latency of its STFT front-end. The Dual-Path Spiking Neural Network (DPSNN)~\cite{b4} follows the TasNet/Conv-TasNet encoder--decoder pattern and replaces the separator with a Spiking Convolutional Neural Network (SCNN) module and a Spiking Recurrent Neural Network (SRNN) module. The combination reaches a 5-millisecond algorithmic frame and still benefits from the sparse-spike advantage of SNNs.
+
+Deployment of these networks has received much less attention. Conventional DNN deployment on Cortex-M-class hardware is by now well-studied through TinyML frameworks and libraries~\cite{mcunet,tflitemicro,cmsisnn}, but the equivalent body of work for time-domain spiking models is essentially empty. Reported operation counts for spiking speech models are almost always derived from synaptic-operation tallies on the trained graph, not from measurements on a real microcontroller. Whether such a model actually fits within the static-memory budget of a Cortex-M-class device, and how its quality and latency change once it is compiled into C and executed in place, is not addressed in the original papers. This gap matters for two reasons. Deployment exposes constraints that simulation does not, such as peak activation memory, supported operator sets, and numerical formats. Moreover, the cost model of an SNN running on standard arithmetic hardware, where spikes are processed as float zeros and ones, is different from the cost model on neuromorphic silicon. The practical benefit of a spiking model on a conventional MCU therefore needs its own evidence.
+
+This thesis takes the SCNN-only DPSNN end-to-end onto the STM32U585~\cite{stm32u5}, an ARM Cortex-M33 with 786~KB of internal SRAM and 2~MB of Flash, representative of mid-range IoT-class hardware. The goal is to determine whether the model runs at all on this class of device, what its on-device latency and quality are, and what changes to the exported graph are needed to make it fit. Two research questions guide the work:
+\begin{enumerate}
+    \item Can a time-domain spiking neural network for speech enhancement be deployed on a resource-constrained ARM Cortex-M33 microcontroller, and what is the resulting trade-off between enhancement quality and inference latency?
+    \item What graph-level and inference-level adaptations are required to deploy a spiking neural network within the SRAM and Flash constraints of an embedded IoT platform without degrading speech enhancement quality?
+\end{enumerate}
+
+The default DPSNN export does not fit on the target device. The cause is not the weights but an overlap-add reconstruction chain that the embedded compiler keeps alive across hundreds of intermediate buffers, producing a peak activation footprint of 1.37~MiB on a 786~KiB  internal SRAM budget. We identify this as a graph-topology bottleneck rather than a precision or weight-size bottleneck, and resolve it by reformulating the model as a single-frame streaming network with explicit recurrent state, which collapses peak activations to 46~KB without changing the output. We then report end-to-end on-device measurements: $17.42$~dB SI-SNR on the VoiceBank-DEMAND~\cite{voicebank} test set, $6.145$~ms per frame at the design width $N{=}128$ and $2.715$~ms per frame at a halved-channel $N{=}64$ variant (real-time factors $2.46\times$ and $1.086\times$ respectively), with on-device output matching the offline ONNX reference to FP32 rounding on a real noisy utterance.
+
+The rest of the paper is organised as follows. Section II describes the methods. Section III details the experiments and reports the results on the full test set and on the device. Section IV discusses the findings and places them in the context of prior work. Section V concludes and reflects on societal implications.
+
+%-----------------------------------------------------------------------------------------------------------------
+
+\section{Methods}
+
+This section describes the speech-enhancement model used in the thesis, the streaming reformulation that was applied to make it executable on a microcontroller, the training procedure, and the deployment pipeline. The original DPSNN model is summarised first because the streaming reformulation and the deployment work that follow are best understood against the unmodified design.
+
+\subsection{Model Architecture}
+
+The deployed network follows the DPSNN family introduced by Sun and Bohté~\cite{b4} in the SCNN-only configuration. It consists of three parts: a learned encoder, a spiking separator, and a learned decoder, as shown in Fig.~\ref{fig:dpsnn}.
+
+The encoder is a one-dimensional convolution with kernel size $L = 80$ samples (5~ms at a 16~kHz sample rate), stride 40 samples, and $N = 128$ output channels. Each 5~ms input segment is mapped to a 128-channel feature vector, with 50\% overlap between successive segments. The encoder replaces the short-time Fourier transform used in earlier frequency-domain systems and learns its analysis bases jointly with the rest of the network.
+
+The separator processes the encoder output along the time axis. A ChannelWiseLayerNorm and a $1 \times 1$ bottleneck convolution, followed by a binarisation layer with a learned threshold, reduce the $N$ encoder channels to $B$ bottleneck channels and binarise the activations. One SCNN module then applies a depthwise temporal convolution with kernel size $\text{context\_step}+1 = 5$, mapping $B$ bottleneck channels to $H$ output channels. The kernel slides one encoder frame at a time, so the SCNN preserves the temporal resolution of the encoder (one SCNN output per input encoder frame). Each SCNN output is passed through a parametric leaky integrate-and-fire (PLIF) spiking neuron~\cite{plif} that emits a binary spike when its membrane potential crosses threshold. The deployed configuration uses a single SCNN module and sets $N=B=H=128$. The SCNN output is consumed by an adaptive leaky integrate-and-fire (ALIF) readout layer~\cite{alif} that projects back from $H$ to $B$ channels and integrates state across time steps. A $1 \times 1$ mask convolution and a sigmoid then expand $B$ back to $N$, the mask multiplies the encoder features element-wise, and the result is passed to the decoder.
+
+%============================================== FIGURE =====================================================
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.8\textwidth]{scnn-only+deploymentpip_v3.png}
+\caption{Deployed SCNN-only DPSNN and end-to-end deployment pipeline. Top: the model architecture with N = B = H = 128. Bottom: the trained PyTorch checkpoint is exported as a streaming ONNX graph (with the custom nn.Fold reimplementation), passed through a 10-step X-CUBE-AI compatibility postprocess, compiled into a static-allocation C library, and flashed to the B-U585I-IOT02A Discovery Kit (STM32U585, ARM Cortex-M33 at 160 MHz).}
+\label{fig:dpsnn}
+\end{figure*}
+
+%============================================== FIGURE =====================================================
+
+The decoder is a transposed one-dimensional convolution with the same kernel size and stride as the encoder. Adjacent decoded segments overlap by $L - \text{stride} = 40$ samples and are summed (overlap-add, OLA) to produce the enhanced waveform. The full network has 71{,}299 trainable parameters and occupies 280~KB in FP32. The architecture configuration is summarised in Table~\ref{tab:arch}.
+\begin{table}[!ht]
+\caption{Architecture configuration of the deployed SCNN-only DPSNN model}
+\label{tab:arch}
+\centering
+\begin{tabular}{ll}
+\hline
+\textbf{Parameter} & \textbf{Value} \\
+\hline
+Sample rate & 16~kHz \\
+Encoder kernel $L$ & 80 samples (5~ms) \\
+Encoder stride & 40 samples (2.5~ms) \\
+Encoder channels $N$ & 128 \\
+Bottleneck channels $B$ & 128 \\
+SCNN hidden channels $H$ & 128 \\
+Trainable parameters & 71{,}299 \\
+Weight storage (FP32) & 280~KB \\
+Recurrent state per frame & 3.2~KB \\
+\hline
+\end{tabular}
+\end{table}
+
+
+\subsection{Streaming Reformulation}
+
+The DPSNN reference implementation~\cite{b4} processes an
+entire utterance in a single forward pass. The decoder uses PyTorch's \texttt{nn.Fold} operator to reconstruct the waveform from the 399 overlapping decoded frames of a one-second clip. The X-CUBE-AI compiler does not support \texttt{nn.Fold}: the underlying \texttt{aten::col2im} operator is not exported in ONNX opset~13, the highest opset accepted by the toolchain. We therefore replaced \texttt{nn.Fold} with a custom overlap-add implementation built from \texttt{F.pad} and element-wise summation, mathematically equivalent to the original but expressed in operators X-CUBE-AI accepts. Even with this replacement, the whole-utterance graph is still problematic for embedded inference: the embedded compiler must keep every intermediate buffer along the 399-step OLA reconstruction chain alive in static memory, and that allocation scales with utterance length.
+
+
+We replace the whole-utterance forward pass with a single-frame streaming forward pass that consumes one 80-sample input window per inference. The decoder still produces 80 raw output samples per inference, but only the first 40 are emitted as the enhanced output of the current frame; the remaining 40 are buffered for the next inference (described below). To preserve the temporal dynamics of the original model, four recurrent state tensors are exposed at the network boundary and chained between successive inferences. The leading dimension of $1$ in the shapes below is the batch axis, retained for ONNX compatibility:
+
+
+\begin{itemize}
+\item a context window of shape $(1, B, 4)$ that holds the most recent four bottleneck-projected feature vectors, used by the depthwise temporal convolution inside the SCNN module;
+\item a PLIF membrane-potential tensor of shape $(1, H, 1)$ that carries the spiking-neuron state from frame to frame;
+\item an ALIF readout membrane-potential tensor of shape $(1, B)$ that carries the readout-neuron state;
+\item an overlap-add tail of shape $(1, 40)$ that holds the second half of the previous inference's 80-sample raw decoder output, to be summed into the first half of the current inference's raw output.
+\end{itemize}
+
+With $N=B=H=128$ in the deployed configuration, each of the three channel-indexed state tensors holds 128 floats per slot. Each tensor has both an input port (state at the start of the frame) and an output port (state at the end of the frame). The microcontroller firmware feeds the output tensors of inference $k$ as the input tensors of inference $k+1$. The combined recurrent state amounts to 3.2~KB per inference.
+
+The streaming model is mathematically equivalent to the whole-utterance model: feeding identical input through both networks and concatenating the streaming outputs reproduces the whole-utterance waveform up to floating-point round-off. We verified this on the full test set before deployment.
+
+
+\subsection{Training}
+
+The model is trained on the VoiceBank-DEMAND corpus~\cite{voicebank,demand}, a standard speech-enhancement benchmark of paired clean and noisy utterances at 16 kHz. The training set contains 11,572 pairs and the test set contains 824 pairs from speakers not seen during training. Training was performed on a single NVIDIA RTX 4060 (8~GB) using PyTorch~2.1 with PyTorch Lightning. Bfloat16 mixed precision~\cite{bfloat16} was used during training to approximately halve per-epoch wall-time on the RTX~4060 tensor cores; this affects training compute only: the optimiser master weights and saved checkpoints remain in FP32, and the exported deployment models are therefore numerically identical to ones obtained from pure-FP32 training. Throughput averaged ${\sim}12$ minutes per epoch (${\sim}20$~h total for 100 epochs).
+
+The training objective combines a negative scale-invariant signal-to-noise
+ratio (SI-SNR) term, a small mean-squared-error term, and a constant offset
+to keep the optimiser away from negative values:
+\begin{equation}
+\label{eq:loss}
+\mathcal{L}(\hat{s}, s) = -\mathrm{SI\text{-}SNR}(\hat{s}, s) 
+  + 10^{-3}\,\lVert \hat{s} - s \rVert_2^2 + 100,
+\end{equation}
+where SI-SNR is defined as
+\begin{equation}
+\label{eq:sisnr}
+\mathrm{SI\text{-}SNR}(\hat{s}, s) = 10\log_{10} 
+  \frac{\lVert s_{\text{target}}\rVert^2}{\lVert e_{\text{noise}}\rVert^2},
+\end{equation}
+with $s_{\text{target}} = \tfrac{\langle \hat{s}, s\rangle}{\lVert s\rVert^2}\, s$ 
+and $e_{\text{noise}} = \hat{s} - s_{\text{target}}$. The SI-SNR term dominates;
+the MSE term provides a small absolute-error pressure that stabilises early training.
+
+
+
+Optimisation uses Adam~\cite{adam} at a learning rate of $1 \times 10^{-2}$, a batch size of 64, and one-second training segments (399 time steps per segment). Training runs for 100 epochs without early stopping. The checkpoint with the best validation SI-SNR (epoch 87) is used for all downstream experiments.
+
+\subsection{Deployment Pipeline}
+
+The trained PyTorch model is exported to ONNX in the streaming form described in Section~II-B, with the five input and five output tensors made explicit at the graph boundary. The ONNX graph is then passed to STMicroelectronics' X-CUBE-AI compiler~\cite{xcubeai}, which performs operator fusion, memory planning, and C-code generation for the target microcontroller. The result is a static-allocation C library that exposes a single inference entry point and operates entirely on user-supplied buffers. The Cortex-M33 has no vector extension for FP32, so the compiled kernels run on the scalar FPU; CMSIS-NN's INT8 kernels are not used because the deployed model is FP32.
+
+
+The compiled network is integrated into a firmware image on the STM32U585 that stores a noisy test utterance in Flash as a constant \texttt{float} array and then iterates over the utterance frame by frame. For each frame, the firmware loads the 80-sample input window into the network's input buffer, points the four state inputs at one half of a ping-pong state-buffer pair, points the four state outputs at the other half, invokes the inference function, and swaps the pointers. The 40 enhanced output samples produced by each inference, the first half of the decoder's 80-sample raw output, summed with the previous frame's overlap-add tail (Section~II-B), are streamed back to the host over UART, where a Python receiver reassembles the waveform and compares it sample-by-sample with the output of the same ONNX model executed offline.
+
+
+The ping-pong buffer scheme is required because the X-CUBE-AI activation pool reuses the memory locations of the state inputs for other internal tensors during the forward pass. Reading the state outputs from those locations after the inference would return stale data. Allocating the state inputs and state outputs in separate, externally managed buffers ensures that the state produced by inference $k$ survives until inference $k+1$ has consumed it.
+
+%-----------------------------------------------------------------------------------------------------------------
+
+
+\section{Experiments and Results}
+The experiments described below answer the two research questions posed in the Introduction. Each subsection states the experimental setup and then reports the corresponding results. Section~III-A defines the metrics and toolchain versions used throughout. Section~III-B measures the FP32 reference quality of the trained model. Section~III-C inspects the memory footprint of the unmodified graph and locates the cause of the SRAM overflow. Section~III-D evaluates the streaming reformulation against that footprint and against the FP32 reference. Section~III-E runs the compiled binary on the device, checks it against the offline reference, and reports latency.
+
+
+
+\subsection{Metrics and Toolchain Versions}
+
+The VoiceBank-DEMAND corpus introduced in Section~II-C provides both the training and evaluation splits; we report all numbers below on the 824-utterance held-out test set.
+
+Three objective metrics are reported. Scale-invariant signal-to-noise ratio (SI-SNR), in dB, compares the time-domain estimate against the clean target and is also the training loss (Section~II-C). Perceptual evaluation of speech quality (PESQ)~\cite{pesq} is reported in wideband mode and evaluates speech quality by comparing the clean and enhanced speech signals, ranging from $-0.5$ to $4.5$, with higher scores indicating better perceived quality. Short-time objective intelligibility (STOI)~\cite{stoi} estimates intelligibility on a continuous $0$ to $1$ scale. PESQ and STOI catch perceptual regressions that SI-SNR alone can miss. All test-set numbers are arithmetic means across the 824 utterances.
+
+The X-CUBE-AI compiler introduced in Section~II-D is invoked at v10.2.0 (ST Edge AI Core v2.2.0-20266). The host PC is connected to the B-U585I-IOT02A board over UART at 115{,}200~baud, used both for the \texttt{aiValidation} numerical-correctness harness and for streaming enhanced audio off the device.
+
+
+\subsection{FP32 Reference Quality}
+The trained checkpoint from Section~II-C is evaluated on the full test set in PyTorch and again as an exported ONNX graph run under ONNX Runtime. The reason to evaluate both is to separate any effect of the ONNX export from later compilation steps: any on-device quality difference observed later can then be attributed to the X-CUBE-AI compiler or to the hardware rather than to ONNX conversion. Two reference points are reported alongside the trained model. The noisy input itself, with no enhancement applied, gives the lower bound that any deployed model has to beat. The pretrained $N=256$ DPSNN released by Sun and Boht\'e~\cite{b4}, evaluated on the same test set, gives the desktop quality ceiling against which the smaller $N=128$ deployment model is benchmarked. We additionally evaluate a channel-reduced variant of the same architecture with $N=B=H=64$, trained under the identical recipe (Section~II-C), as a deliberately smaller deployment target for the latency study reported in Section~III-E. 
+
+
+Table~\ref{tab:fp32-ref} reports the FP32 metrics. PyTorch and ONNX-Runtime gave identical numbers to metric rounding on every utterance, so only one row is shown for the FP32 reference. The deployed streaming variant (Section~III-D) is included alongside the whole-utterance model and matches it on every metric to within $0.01$~dB SI-SNR.
+
+\begin{table}[!ht]
+\caption{FP32 quality on the 824-utterance VoiceBank-DEMAND test set. Means across utterances.}
+\label{tab:fp32-ref}
+\centering
+\setlength{\tabcolsep}{3pt} 
+\begin{tabular}{lccc}
+\hline
+\textbf{Model} & \textbf{SI-SNR (dB)} & \textbf{PESQ (wb)} & \textbf{STOI} \\
+\hline
+Noisy input (no enhancement) & 8.44 & 1.971 & 0.921 \\
+DPSNN $N=128$, whole-utterance & 17.41 & 2.115 & 0.923 \\
+DPSNN $N=128$, streaming & 17.42 & 2.149 & 0.923 \\
+DPSNN $N=64$, streaming & 16.70 & 2.022 & 0.922 \\
+Pretrained DPSNN $N=256$~\cite{b4} & 18.08 & 2.264 & 0.925 \\
+\hline
+\end{tabular}
+\end{table}
+
+
+The $N=128$ deployment model improves SI-SNR by $8.98$~dB over the noisy input and reaches within $0.66$~dB of the pretrained $N=256$ ceiling while using $5.2\times$ fewer parameters. The $N=64$ variant gives up an additional $0.72$~dB of SI-SNR (and small drops of $0.127$ in PESQ and $0.001$ in STOI) in exchange for the channel-width reduction that makes the near-real-time on-device performance reported in Section~III-E possible.
+
+
+\subsection{Memory Footprint of the Unmodified Model}
+The trained model is exported to ONNX in its original whole-utterance form, 399 encoder frames per inference, and passed to X-CUBE-AI in \texttt{analyze} mode. The compiler produces a per-tensor activation-allocation report whose contents reflect the memory planner's final layout after slot rotation. This experiment is diagnostic: its output is a footprint number together with a categorisation of which graph operators are responsible for it. The categorisation is needed before any remediation because the obvious first move, weight quantization, would not have removed the bottleneck; only the per-tensor report shows where the activation memory is actually going.
+
+X-CUBE-AI \texttt{analyze} on the unmodified whole-utterance ONNX reports $1.37$~MiB of activations ($1{,}433{,}408$~bytes), which exceeds the 786~KB internal SRAM ($786{,}432$~bytes) by $1.82\times$. The per-tensor activation report contains $18{,}037$ C-array entries spread over $164{,}217$ lines and shows that the overlap-add reconstruction chain causes the SRAM overflow. PyTorch exports the 399-frame OLA reconstruction as a chain of \texttt{Pad}+\texttt{Add} pairs whose intermediate tensors are each 16{,}000-sample ($64$~KB) FP32 buffers; the per-tensor report shows $1{,}196$ such buffers in total. The memory planner rotates this slot and reduces $1{,}196 \times 64$~KB $=$ $76$~MB of nominally-live buffers down to a peak of $22$ simultaneously-live $\times$ $64$~KB $=$ $1.37$~MiB. This $1.37$~MiB is the structural floor of the unmodified graph. Neither \texttt{-O ram} nor weight quantization to INT8 brings it below this floor; both produce footprints within $10$~KB of the FP32 number. The bottleneck is graph topology, not precision.
+
+
+\subsection{Streaming Reformulation}
+The streaming model defined in Section~II-B must satisfy two requirements: it has to compile to a footprint that fits on the device, and it has to produce the same audio as the whole-utterance model. The two are checked independently. For the footprint, the streaming ONNX is passed to X-CUBE-AI \texttt{analyze} with the same flags as in Section~III-C, and the resulting activation footprint, weight size, and graph node count are compared with the whole-utterance baseline. For the equivalence check, both models are run on the same 824-utterance test set: the whole-utterance ONNX is invoked once per utterance, while the single-frame streaming ONNX is invoked 399 times per utterance from a Python loop, with the four state outputs of inference $k$ used as the state inputs of inference $k+1$. The two output waveforms are compared sample by sample, and SI-SNR, PESQ, and STOI are recomputed on the streaming output to confirm that no metric regression appears.
+
+Table~\ref{tab:mem-compare} reports the footprint for both deployed configurations. At $N=128$, activation memory falls from $1{,}433{,}408$ bytes (whole-utterance) to $47{,}072$ bytes (streaming), a reduction of $30.5\times$. The model fits the 786~KB SRAM budget with $94\%$ headroom. The graph contracts from $20{,}022$ to $43$ nodes, and X-CUBE-AI \texttt{analyze} finishes in $16$~seconds instead of the ${\sim}3$ hours required for the whole-utterance graph. The channel-reduced $N=64$ streaming variant uses the same graph topology and reduces the weights to 91~KB (approximately one third of the $N=128$ build) while bringing activations to 23~KB ($34\times$ free in SRAM), confirming that the savings of the streaming reformulation compose with the channel reduction.
+
+\begin{table*}[!t]
+\caption{Memory footprint and graph complexity: whole-utterance baseline vs.\ streaming reformulation at $N=128$ and $N=64$.}
+\label{tab:mem-compare}
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Metric} & \textbf{Whole-utterance, $N{=}128$} & \textbf{Streaming, $N{=}128$} & \textbf{Streaming, $N{=}64$} \\
+\hline
+Weights (Flash)            & 347 KB              & 280 KB              & 91 KB             \\
+Activations (SRAM)         & 1.37 MiB            & 46 KB               & 23 KB             \\
+SRAM budget headroom       & over by $1.82\times$ & $17\times$ free     & $34\times$ free   \\
+ONNX graph nodes           & 20{,}022            & 43                  & 43                \\
+Analyze wall-time          & $\sim\!3$ h         & 16 s                & 16 s              \\
+\hline
+\end{tabular}
+\end{table*}
+
+The streaming model is numerically equivalent to the whole-utterance model up to FP32 rounding. Concatenating the 399 streaming outputs per utterance reproduces the whole-utterance waveform with a maximum absolute per-sample deviation below FP32 reduction-order noise (typically $<10^{-5}$) across the full 824-utterance test set. The recomputed SI-SNR, PESQ, and STOI on the streaming output (Table~\ref{tab:fp32-ref}, third row) agree with the whole-utterance numbers to within $0.01$~dB SI-SNR, $0.034$ PESQ, and $0.000$ STOI; the small residual drift reflects PESQ's internal sensitivity to sub-sample-level numerical noise, not a perceptible quality difference.
+
+
+\subsection{On-Device Validation}
+The compiled model is then run on the STM32U585. Two checks are performed: a numerical check against the offline ONNX reference, and an end-to-end speech-enhancement check on a real noisy utterance. Latency is measured during the same firmware run.
+
+For the numerical check, X-CUBE-AI's \texttt{aiValidation} harness is used. The host transmits a fixed batch of random inputs to the board over UART, the firmware runs the compiled network on each input, and the host compares the returned outputs against an ONNX Runtime reference computed locally on the same inputs. Per-tensor root-mean-square error (RMSE) and normalised similarity error (NSE) are reported across all five outputs of the streaming model. A perfect match on random inputs would prove that the generated C code is bit-equivalent to the ONNX graph, regardless of whether that graph actually denoises anything.
+
+For the end-to-end check, a noisy test utterance (\texttt{p232\_009}, $4.16$~s, $1{,}662$ streaming inferences) is embedded in the firmware image as a constant \texttt{float} array. On reset, the firmware iterates over the utterance frame by frame, invokes the compiled network's inference function, and streams the $40$ enhanced samples produced by each inference back over UART. A Python receiver on the host reassembles the waveform, computes SI-SNR against the clean reference, and compares the on-device output sample by sample with the same streaming model executed offline by ONNX Runtime on the same noisy input. The headline number is the SI-SNR difference between the on-device and offline runs.
+
+Latency is measured by reading the Cortex-M33's data-watchpoint-and-trace (DWT) cycle counter immediately before and after each inference. Per-frame cycle counts are summed across all $1{,}662$ frames of the utterance, and the mean is divided by the $160$~MHz core clock to give milliseconds per frame. Real-time factor is reported as the ratio of inference time per frame to the $2.5$~ms algorithmic output stride. UART transmission time is excluded, because on a deployed device the enhanced audio would be consumed locally rather than streamed off-chip.
+
+\begin{table}[!ht]
+\caption{Per-tensor RMSE between the compiled MCU binary and ONNX-Runtime on identical random inputs (\texttt{aiValidation}). The normalised similarity error (NSE) is $1.000000$ for every output and is omitted.}
+\label{tab:numerical}
+\centering
+\begin{tabular}{lc}
+\hline
+\textbf{Output tensor} & \textbf{RMSE} \\
+\hline
+\texttt{enhanced} (40)              & $3.48 \times 10^{-6}$ \\
+\texttt{new\_v\_plif} (128, 1)      & $1.2 \times 10^{-7}$  \\
+\texttt{new\_mem\_readout} (128)    & $8.4 \times 10^{-8}$  \\
+\texttt{new\_context\_win} (128, 4) & $0.0$                 \\
+\texttt{new\_ola\_tail} (40)        & $2.1 \times 10^{-7}$  \\
+\hline
+\end{tabular}
+\end{table}
+
+\paragraph{Numerical correctness} Table~\ref{tab:numerical} reports the per-tensor errors from the \texttt{aiValidation} harness for the $N=128$ deployment ($10$ random-input batches on the device, compared against the ONNX-Runtime reference on the host). The maximum RMSE across the five outputs is $3.48 \times 10^{-6}$, and NSE is $1.000000$ on every output. These errors are at the level of FP32/FP64 rounding, since the MCU runs FP32 and the host reference uses FP64 internally. The same harness on the $N=64$ build returned RMSE values of the same order of magnitude and NSE $= 1.000000$ on every output.
+
+% ============================================== FIGURE =====================================================
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.8\textwidth]{fig3_io_waveforms_v5.png}
+\caption{Input/output stream for the on-device test utterance \texttt{p232\_009}
+(4.16~s, VoiceBank-DEMAND test set). Top: noisy input streamed into the firmware
+(SI-SNR 6.77~dB against the clean reference). Middle: MCU enhanced output collected over UART from 1,662 streaming inferences (SI-SNR 15.98 dB,
+an improvement of +9.21 dB). Bottom: clean reference. All three waveforms are
+peak-normalised so amplitudes are directly comparable; the MCU output matches
+the offline ONNX reference sample-by-sample to within $5\times10^{-4}$~dB.}
+\label{fig:io-waveforms}
+\end{figure*}
+
+% ============================================== FIGURE =====================================================
+
+\paragraph{End-to-end speech enhancement} On the embedded noisy utterance \texttt{p232\_009} ($4.16$~s, $1{,}662$ streaming inferences, input SI-SNR $6.77$~dB), the $N=128$ deployment produced an on-device MCU SI-SNR of $15.66$~dB, matching its ONNX-Runtime reference of $15.66$~dB to within $5 \times 10^{-4}$~dB and enhancing the noisy input by $+8.89$~dB. The $N=64$ variant on the same utterance produced $15.98$~dB on-device, again matching its offline ONNX reference to within $5 \times 10^{-4}$~dB and improving the input by $+9.21$~dB. Both variants therefore match their offline ONNX execution on the device to FP32 rounding; Fig.~\ref{fig:io-waveforms} shows the input and the $N=64$ enhanced output side-by-side with the clean reference.
+
+
+\paragraph{Latency} For the $N=128$ deployment the DWT cycle counter measured $6.145$~ms per frame averaged across the $1{,}662$ frames of \texttt{p232\_009}, and $6.185 \pm 0.002$~ms per frame across $10$ random-input batches of the \texttt{aiValidation} harness. This corresponds to $989{,}200$ CPU cycles per frame on the $160$~MHz Cortex-M33, or $1.12$ cycles per MACC. Against the $2.5$~ms algorithmic output stride the resulting real-time factor is $\mathrm{RTF}_{N=128} = 6.145 / 2.5 = 2.46$. The $N=64$ variant on the same utterance averaged $2.715$~ms per frame, a $2.26\times$ speed-up over $N=128$, which brings $\mathrm{RTF}_{N=64} = 2.715/2.5 = 1.086$, $8.6\%$ over the real-time budget. The Cortex-M33 is already clocked at its rated maximum of $160$~MHz, so the channel-width reduction is what closes the gap. Section~IV discusses the resulting quality-versus-latency trade-off.
+
+
+\paragraph{Memory headroom on the deployed device} The compiled binary uses $46$~KB of SRAM ($5.8\%$ of the $786$~KB budget) and $280$~KB of Flash for model weights at $N=128$; the $N=64$ variant brings these to $23$~KB of SRAM ($2.9\%$) and $91$~KB of Flash. The embedded \texttt{p232\_009} test utterance ($66{,}522$ float32 samples placed in \texttt{.rodata}) is identical for both builds and contributes a further ${\sim}260$~KB of Flash, so total Flash usage is ${\sim}540$~KB at $N=128$ or ${\sim}350$~KB at $N=64$, well within the $2$~MB budget in either case.
+
+
+%---------------------------------------------------------------------------------------------------------------
+
+
+\section{Discussion}
+
+The deployment works. Both compiled binaries fit within the SRAM and Flash budgets of the STM32U585 and match the offline ONNX reference to FP32 rounding on a real noisy utterance ($5 \times 10^{-4}$~dB delta). The $N=128$ configuration reaches higher quality (17.42~dB test SI-SNR) at $6.145$~ms per frame, $2.46\times$ the $2.5$~ms algorithmic stride. The $N=64$ configuration trades $0.72$~dB of SI-SNR for a $2.26\times$ speed-up to $2.715$~ms per frame, bringing the real-time factor to $1.086\times$, $8.6\%$ over the per-frame budget. The STM32U585 is already running at its rated maximum clock, so the gap between the two configurations is bought by the channel-width reduction rather than by clock speed: a quality-versus-latency Pareto point on the same MCU. This answers RQ1: at the published design width ($N=128$) the desktop efficiency of DPSNN does not transfer to Cortex-M33 execution, but a halved-channel variant of the same network closes the gap to within $8.6\%$ of real-time at a $0.72$~dB SI-SNR cost.
+
+The graph-topology finding generalises beyond DPSNN. Standard practice for fitting a network into MCU memory is weight quantization, and the diagnostic in Section~III-C shows why that is the wrong move here: INT8 weight quantization leaves peak activations within $10$~KB of the FP32 number, because the bottleneck is $22$ simultaneously-live $64$~KB overlap-add buffers rather than weight storage. The streaming reformulation removes the 399-frame OLA chain entirely and collapses peak activations by $30.5\times$. Any time-domain encoder--decoder model that reconstructs an utterance with overlap-add will hit the same wall. TasNet~\cite{b2} and Conv-TasNet~\cite{b3} both have this structure, so the streaming pattern is not unique to spiking networks. The portable lesson is the diagnosis: on this class of model, the bottleneck is graph topology, and weight precision will not move it.
+
+The scope of these claims is bounded in four ways. First, only one MCU was tested; whether the streaming reformulation transfers unchanged to a higher-end Cortex-M55 with Helium vector extensions or to a smaller Cortex-M4 is not addressed here. Second, the test utterance was embedded in Flash rather than streamed from a live microphone, so audio I/O and buffer management are not part of the reported latency. Third, no DNN of comparable size was deployed on the same MCU as a direct baseline; the operation-count and energy advantages of SNNs reported in~\cite{b1} and~\cite{b4} are derived from synaptic-operation tallies on simulated neuromorphic hardware, and whether they survive translation to a conventional Cortex-M arithmetic pipeline is left open. Fourth, INT8 deployment was not pursued: the spike-path FP32 tensors prevent X-CUBE-AI from propagating INT8 across the heavy convolutions, so the compiler reports \texttt{model\_fmt: float} on the INT8 ONNX and the generated kernels are essentially identical to the FP32 build.
+
+%-----------------------------------------------------------------------------------------------------------------
+
+\section{Conclusions}
+
+The Dual-Path Spiking Neural Network for speech enhancement can be deployed end-to-end on a resource-constrained ARM Cortex-M33 microcontroller. Two adaptations of the trained network were required to make this work, and a third commonly-assumed step turned out not to be needed.
+
+In answer to RQ1, the SCNN-only DPSNN was deployed at two channel widths. The $N{=}128$ configuration reaches $17.42$~dB SI-SNR on the 824-utterance VoiceBank-DEMAND test set and runs at $6.145$~ms per frame ($\mathrm{RTF}=2.46$), within $0.66$~dB of the pretrained $N{=}256$ desktop ceiling at $5.2\times$ fewer parameters. The $N{=}64$ configuration trades $0.72$~dB of SI-SNR for a $2.26\times$ speed-up to $2.715$~ms per frame ($\mathrm{RTF}=1.086$, $8.6\%$ over the per-frame budget). On-device output matches the offline ONNX reference to within $5 \times 10^{-4}$~dB in both cases, so the test-set quality applies on-device. This is the answer to RQ1: at the published design width the desktop efficiency of DPSNN does not transfer to Cortex-M33 execution, but a halved-channel variant of the same network closes the gap to near-real-time at a quantified quality cost.
+
+In answer to RQ2, two adaptations of the trained network were strictly required. First, the decoder's overlap-add reconstruction was reimplemented from \texttt{F.pad} and element-wise summation, because the underlying \texttt{aten::col2im} operator behind PyTorch's \texttt{nn.Fold} is not exported in ONNX opset~13 and is not accepted by X-CUBE-AI. Second, the 399-frame whole-utterance forward pass was replaced by a single-frame streaming pass carrying $3.2$~KB of explicit recurrent state (at $N{=}128$); this collapses peak activation memory by $30.5\times$ without changing the output, and both deployed configurations use FP32 weights throughout. Standard INT8 weight quantization is not required and would not have solved the memory problem alone, because the bottleneck on the unmodified graph is the overlap-add reconstruction chain rather than weight storage.
+
+Running speech enhancement on the user's own device removes the need to upload raw audio to a cloud service, which is a real privacy benefit for hearing aids, smart speakers, and any other voice-facing product. Lowering the deployment hardware from a dedicated DSP or accelerator to a general-purpose IoT-class MCU also lowers the unit cost, which affects who can afford the resulting features. The same techniques are dual-use, though: cheaper, smaller, lower-power audio processing also makes always-on capture cheaper for any party with access to the device. The privacy benefit holds only if the audio is processed locally and not silently relayed elsewhere.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+%-----------------------------------------------------------------------------------------------------------------
+
+\begin{thebibliography}{00}
+
+
+
+\bibitem{b2} Y. Luo and N. Mesgarani, ``TasNet: Time-domain audio separation network for real-time, single-channel speech separation,'' in 2018 IEEE Int. Conf. on Acoustics, Speech and Signal Processing (ICASSP), Calgary, AB, Canada, 2018, pp. 696--700.
+
+\bibitem{b3} Y. Luo and N. Mesgarani, ``Conv-TasNet: Surpassing ideal time-frequency magnitude masking for speech separation,'' IEEE/ACM Trans. Audio, Speech, Language Process., vol. 27, no. 8, pp. 1256--1266, Aug. 2019.
+
+\bibitem{b1} X. Hao, C. Ma, Q. Yang, K. C. Tan, and J. Wu, ``When audio denoising meets spiking neural network,'' in 2024 IEEE Conf. on Artificial Intelligence (CAI), Singapore, 2024, pp. 1524--1527.
+
+\bibitem{b4} T. Sun, ``DPSNN: Spiking neural network for low-latency streaming
+speech enhancement,'' GitHub, 2024. [Online]. Available:
+\url{https://github.com/tao-sun/dpsnn}
+
+
+\bibitem{mcunet}
+J.~Lin, W.-M. Chen, Y.~Lin, J.~Cohn, C.~Gan, and S.~Han,
+``MCUNet: Tiny deep learning on IoT devices,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)}, vol.~33, 2020, pp.~11711--11722.
+
+\bibitem{cmsisnn}
+L.~Lai, N.~Suda, and V.~Chandra,
+``CMSIS-NN: Efficient neural network kernels for Arm Cortex-M CPUs,''
+arXiv:1801.06601, 2018.
+
+
+\bibitem{tflitemicro}
+R.~David et~al.,
+``TensorFlow Lite Micro: Embedded machine learning for TinyML systems,''
+in \emph{Proc. Conference on Machine Learning and Systems (MLSys)}, vol.~3, 2021, pp.~800--811.
+
+\bibitem{stm32u5}
+STMicroelectronics,
+``STM32U585xx datasheet -- Arm Cortex-M33 32-bit MCU+TrustZone+FPU, 165 DMIPS, up to 2 MB Flash, 786 KB SRAM,''
+DS13086 Rev. 9, 2024.
+
+\bibitem{voicebank}
+C. Valentini-Botinhao, X. Wang, S. Takaki, and J. Yamagishi,
+``Investigating RNN-based speech enhancement methods for noise-robust text-to-speech,''
+in \emph{Proc. 9th ISCA Workshop on Speech Synthesis (SSW)}, Sunnyvale, CA, USA, 2016, pp. 146--152.
+
+\bibitem{demand}
+J. Thiemann, N. Ito, and E. Vincent,
+``The Diverse Environments Multi-channel Acoustic Noise Database (DEMAND): A database of multichannel environmental noise recordings,''
+in \emph{Proc. Meetings on Acoustics}, vol. 19, no. 1, 2013, p. 035081.
+
+\bibitem{plif}
+W. Fang, Z. Yu, Y. Chen, T. Masquelier, T. Huang, and Y. Tian,
+``Incorporating learnable membrane time constant to enhance learning of spiking neural networks,''
+in \emph{Proc. IEEE/CVF Int. Conf. Computer Vision (ICCV)}, 2021, pp. 2661--2671.
+
+\bibitem{alif}
+G. Bellec, D. Salaj, A. Subramoney, R. Legenstein, and W. Maass,
+``Long short-term memory and learning-to-learn in networks of spiking neurons,''
+in \emph{Advances in Neural Information Processing Systems (NeurIPS)}, vol. 31, 2018.
+
+\bibitem{bfloat16}
+D. Kalamkar et al.,
+``A study of bfloat16 for deep learning training,''
+arXiv:1905.12322, 2019.
+
+\bibitem{adam}
+D. P. Kingma and J. Ba,
+``Adam: A method for stochastic optimization,''
+in \emph{Proc. Int. Conf. Learning Representations (ICLR)}, San Diego, CA, USA, 2015.
+
+\bibitem{xcubeai}
+STMicroelectronics,
+``X-CUBE-AI: AI expansion pack for STM32CubeMX (UM2526),''
+Rev. 11, 2024.
+
+\bibitem{pesq}
+ITU-T Recommendation P.862.2,
+``Wideband extension to Recommendation P.862 for the assessment of wideband telephone networks and speech codecs,''
+Int. Telecommun. Union, Geneva, Switzerland, 2007.
+
+\bibitem{stoi}
+C. H. Taal, R. C. Hendriks, R. Heusdens, and J. Jensen,
+``An algorithm for intelligibility prediction of time-frequency weighted noisy speech,''
+\emph{IEEE Trans. Audio, Speech, Language Process.}, vol. 19, no. 7, pp. 2125--2136, Sept. 2011.
+
+\bibitem{sisnr}
+J. Le Roux, S. Wisdom, H. Erdogan, and J. R. Hershey,
+``SDR -- half-baked or well done?,''
+in \emph{Proc. IEEE Int. Conf. Acoust., Speech, Signal Process. (ICASSP)}, Brighton, UK, 2019, pp. 626--630.
+
+
+
+
+\end{thebibliography}
+\vspace{12pt}
+
+
+\end{document}

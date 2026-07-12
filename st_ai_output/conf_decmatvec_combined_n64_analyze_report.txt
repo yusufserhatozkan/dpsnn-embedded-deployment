@@ -1,0 +1,499 @@
+ST Edge AI Core v2.2.0-20266 2adc00962
+Created date          : 2026-06-10 22:12:55
+Parameters            : analyze --model export/conf_decmatvec_combined_n64_xcubeai.onnx --target stm32u5 --optimization balanced --compression none --name conf_decmatvec_combined_n64 --workspace st_ai_ws --output st_ai_output
+
+Exec/report summary (analyze)
+------------------------------------------------------------------------------------------------------------
+model file         :   <repo>\export\conf_decmatvec_combined_n64_xcubeai.onnx   
+type               :   onnx                                                                                 
+c_name             :   conf_decmatvec_combined_n64                                                          
+compression        :   none                                                                                 
+options            :   allocate-inputs, allocate-outputs                                                    
+optimization       :   balanced                                                                             
+target/series      :   stm32u5                                                                              
+workspace dir      :   <repo>\st_ai_ws                                          
+output dir         :   <repo>\st_ai_output                                      
+model_fmt          :   float                                                                                
+model_name         :   conf_decmatvec_combined_n64_xcubeai                                                  
+model_hash         :   0x5d9a335a18ca293097cd18ff5d25107c                                                   
+params #           :   15,061 items (58.83 KiB)                                                             
+------------------------------------------------------------------------------------------------------------
+input 1/5          :   'frame', f32(1x80), 320 Bytes, activations                                           
+input 2/5          :   'context_win', f32(1x64x4), 1024 Bytes, activations                                  
+input 3/5          :   'v_plif', f32(1x64x1), 256 Bytes, activations                                        
+input 4/5          :   'mem_readout', f32(1x64), 256 Bytes, activations                                     
+input 5/5          :   'ola_tail', f32(1x40), 160 Bytes, activations                                        
+inputs (total)     :   1.97 KBytes                                                                          
+output 1/5         :   'enhanced', f32(1x40), 160 Bytes, activations                                        
+output 2/5         :   'new_context_win_Transpose_1', f32(1x64x4), 1024 Bytes, activations                  
+output 3/5         :   'new_v_plif', f32(1x1x64), 256 Bytes, activations                                    
+output 4/5         :   'new_mem_readout', f32(1x64), 256 Bytes, activations                                 
+output 5/5         :   'new_ola_tail', f32(1x40), 160 Bytes, activations                                    
+outputs (total)    :   1.81 KBytes                                                                          
+macc               :   18,091                                                                               
+weights (ro)       :   61,016 B (59.59 KiB) (1 segment) / +772(+1.3%) vs float model                        
+activations (rw)   :   4,320 B (4.22 KiB) (1 segment) *                                                     
+ram (total)        :   4,320 B (4.22 KiB) = 4,320 + 0 + 0                                                   
+------------------------------------------------------------------------------------------------------------
+(*) 'input'/'output' buffers are allocated in the activations buffer
+
+Model name - conf_decmatvec_combined_n64_xcubeai
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+m_id   layer (type,original)                                 oshape           param/size        macc                     connected to   | c_size                c_macc            c_type                                   
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+6      _ln_Constant_output_0 (Placeholder, Pow)              []               1/4                                                       |                       +640(+100.0%)     Eltwise/pow_[7]                          
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+9      _ln_Constant_1_output_0 (Placeholder, Add)            []               1/4                                                       | +4(+100.0%)           +2(+100.0%)       ScaleBias_[11]                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+13     ln_weight (Placeholder, Mul)                          [b:1,h:1,c:64]   64/256                                                    | -256(-100.0%)                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+1      ln_bias (Placeholder, Add)                            [b:1,h:1,c:64]   64/256                                                    | -256(-100.0%)         +128(+100.0%)     Transpose_[o][18]                        
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+19     _Sigmoid_output_0 (Placeholder, Mul)                  []               1/4                                                       | +508(+12700.0%)       +128(+100.0%)     ScaleBias_[21]                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+2      _Constant_1_output_0 (Placeholder, Sub)               []               1/4                                                       | +20,732(+518300.0%)   +5,344(+100.0%)   Transpose_/Transpose_/Conv2D_[0, 1, 2]   
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+26     srnn_readout_dense_weight (Placeholder, Gemm)         [b:64,c:64]      4,096/16,384                                              | +256(+1.6%)           +4,160(+100.0%)   Dense_[26]                               
+       srnn_readout_dense_bias (Placeholder, Gemm)           [b:64]           64/256                                                    | -256(-100.0%)                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+2      _Sigmoid_1_output_0 (Placeholder, Mul)                []               1/4                                                       | -4(-100.0%)                             
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+35     dec_linear_weight (Placeholder, Gemm)                 [b:80,c:64]      5,120/20,480                                              | +320(+1.6%)           +5,200(+100.0%)   Dense_[32]                               
+       dec_linear_bias (Placeholder, Gemm)                   [b:80]           80/320                                                    | -320(-100.0%)                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+0      frame (Input, )                                       [b:1,c:80]                                                                 |                                         
+       context_win (Input, )                                 [b:1,h:4,c:64]                                                             |                                         
+       v_plif (Input, )                                      [b:1,h:1,c:64]                                                             |                                         
+       mem_readout (Input, )                                 [b:1,c:64]                                                                 |                                         
+       ola_tail (Input, )                                    [b:1,c:40]                                                                 |                                         
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+1      _encoder_1d_Unsqueeze_output_0 (Reshape, Unsqueeze)   [b:1,h:80,c:1]                                                     frame   |                                         
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+2      _encoder_1d_Conv_output_0 (Conv2D, Conv)              [b:1,h:1,c:64]   5,184/20,736     5,184   _encoder_1d_Unsqueeze_output_0   | -20,736(-100.0%)      -5,184(-100.0%)   
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+3      _encoder_act_Relu_output_0 (Nonlinearity, Relu)       [b:1,h:1,c:64]                       64        _encoder_1d_Conv_output_0   |                                         Nonlinearity_[3]                         
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+4      _ln_ReduceMean (Reduce, ReduceMean)                   [b:1,h:1,c:1]                       128       _encoder_act_Relu_output_0   | +8(+100.0%)           -62(-48.4%)       Reduce_/ScaleBias_[4, 5]                 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+5      _ln_Sub (Eltwise, Sub)                                [b:1,h:1,c:64]                       64       _encoder_act_Relu_output_0   |                                         Eltwise/sub_[6]                          
+                                                                                                                       _ln_ReduceMean   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+6      _ln_Pow (Eltwise, Pow)                                [b:1,h:1,c:64]                      640                          _ln_Sub   |                       -640(-100.0%)     
+                                                                                                                _ln_Constant_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+7      _ln_ReduceMean_1 (Reduce, ReduceMean)                 [b:1,h:1,c:1]                       128                          _ln_Pow   | +8(+100.0%)           -62(-48.4%)       Reduce_/ScaleBias_[8, 9]                 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+8      _ln_ReduceMean_1_output_0 (Transpose, Transpose)      [b:1,h:1,c:1]                                           _ln_ReduceMean_1   |                                         Transpose_[10]                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+9      _ln_Add_output_0 (Eltwise, Add)                       [b:1,h:1,c:1]                         1        _ln_ReduceMean_1_output_0   |                       -1(-100.0%)       
+                                                                                                              _ln_Constant_1_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+10     _ln_Sqrt_output_0 (Nonlinearity, Sqrt)                [b:1,h:1,c:1]                        12                 _ln_Add_output_0   |                                         Nonlinearity_[12]                        
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+11     Transpose_token_3_out0 (Transpose, Transpose)         [b:1,h:1,c:1]                                          _ln_Sqrt_output_0   |                                         Transpose_[13]                           
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+12     _ln_Div (Eltwise, Div)                                [b:1,h:1,c:64]                      320                          _ln_Sub   |                                         Eltwise/div_[14]                         
+                                                                                                               Transpose_token_3_out0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+13     _ln_Mul (Eltwise, Mul)                                [b:1,h:1,c:64]                       64                          _ln_Div   |                       -64(-100.0%)      
+                                                                                                                            ln_weight   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+14     _ln_Add_1 (Eltwise, Add)                              [b:1,h:1,c:64]                       64                          _ln_Mul   | +512(+100.0%)         +64(+100.0%)      ScaleBias_[15]                           
+                                                                                                                              ln_bias   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+15     _Concat_output_0 (Concat, Concat)                     [b:1,h:5,c:64]                                               context_win   |                                         Concat_[16]                              
+                                                                                                                            _ln_Add_1   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+16     _dconv_Conv_output_0 (Conv2D, Conv)                   [b:1,h:1,c:64]   384/1,536          384                 _Concat_output_0   |                                         Conv2D_[19]                              
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+17     new_context_win (Slice, Slice)                        [b:1,h:4,c:64]                                          _Concat_output_0   |                                         Slice_[17]                               
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+18     _Sub_1_output_0 (Eltwise, Sub)                        [b:1,h:1,c:64]                       64             _dconv_Conv_output_0   |                                         Eltwise/sub_[20]                         
+                                                                                                                               v_plif   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+19     _Mul_output_0 (Eltwise, Mul)                          [b:1,h:1,c:64]                       64                  _Sub_1_output_0   |                       -64(-100.0%)      
+                                                                                                                    _Sigmoid_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+20     _Add_output_0 (Eltwise, Add)                          [b:1,h:1,c:64]                       64                           v_plif   |                                         Eltwise/add_[22]                         
+                                                                                                                        _Mul_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+21     _Sub_2_output_0 (Eltwise, Sub)                        [b:1,h:1,c:64]                       64                    _Add_output_0   | +4(+100.0%)                             Eltwise/sub_[23]                         
+                                                                                                                 _Constant_1_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+22     _nobool_2__surroga..put_0_sign (Nonlinearity, Sign)   [b:1,h:1,c:64]                       64                  _Sub_2_output_0   |                                         Nonlinearity_[24]                        
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+23     _nobool_3__surroga..put_0_relu (Nonlinearity, Relu)   [b:1,h:1,c:64]                       64   _nobool_2__surroga..put_0_sign   |                                         Nonlinearity_[25]                        
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+24     _Squeeze_output_0 (Reshape, Squeeze)                  [b:1,c:64]                                _nobool_3__surroga..put_0_relu   |                                         
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+25     _Sub_3_output_0 (Eltwise, Sub)                        [b:1,h:1,c:64]                        1             _Constant_1_output_0   | +4(+100.0%)                             Eltwise/sub_[36]                         
+                                                                                                       _nobool_3__surroga..put_0_relu   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+26     _dense_Gemm_output_0 (Gemm, Gemm)                     [b:1,c:64]                        4,160                _Squeeze_output_0   |                       -4,160(-100.0%)   
+                                                                                                            srnn_readout_dense_weight   | 
+                                                                                                              srnn_readout_dense_bias   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+27     new_v_plif (Eltwise, Mul)                             [b:1,h:1,c:64]                       64                    _Add_output_0   |                                         Eltwise/mul_[o][37]                      
+                                                                                                                      _Sub_3_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+28     _Sub_4_output_0 (Eltwise, Sub)                        [b:1,c:64]                           64             _dense_Gemm_output_0   |                                         Eltwise/sub_[27]                         
+                                                                                                                          mem_readout   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+29     _Mul_2_output_0 (Eltwise, Mul)                        [b:1,c:64]                           64                  _Sub_4_output_0   | +512(+100.0%)         +64(+100.0%)      ScaleBias_[28]                           
+                                                                                                                  _Sigmoid_1_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+30     new_mem_readout (Eltwise, Add)                        [b:1,c:64]                           64                      mem_readout   |                                         Eltwise/add_[o][29]                      
+                                                                                                                      _Mul_2_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+31     _Unsqueeze_output_0 (Reshape, Unsqueeze)              [b:1,h:1,c:64]                                           new_mem_readout   |                                         
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+32     _mask_act_Sigmoid_output_0 (Nonlinearity, Sigmoid)    [b:1,h:1,c:64]                      640              _Unsqueeze_output_0   |                                         Nonlinearity_[30]                        
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+33     _Mul_3_output_0 (Eltwise, Mul)                        [b:1,h:1,c:64]                       64       _encoder_act_Relu_output_0   |                                         Eltwise/mul_[31]                         
+                                                                                                           _mask_act_Sigmoid_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+34     _Squeeze_1_output_0 (Reshape, Squeeze)                [b:1,c:64]                                               _Mul_3_output_0   |                                         
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+35     _dec_linear_Gemm_output_0 (Gemm, Gemm)                [b:1,c:80]                        5,200              _Squeeze_1_output_0   |                       -5,200(-100.0%)   
+                                                                                                                    dec_linear_weight   | 
+                                                                                                                      dec_linear_bias   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+36     _Slice_1_output_0 (Slice, Slice)                      [b:1,c:40]                                     _dec_linear_Gemm_output_0   |                                         Slice_[34]                               
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+37     new_ola_tail (Slice, Slice)                           [b:1,c:40]                                     _dec_linear_Gemm_output_0   |                                         Slice_[o][33]                            
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+38     enhanced (Eltwise, Add)                               [b:1,c:40]                           40                         ola_tail   |                                         Eltwise/add_[o][35]                      
+                                                                                                                    _Slice_1_output_0   | 
+------ ----------------------------------------------------- ---------------- -------------- ------- -------------------------------- --- --------------------- ----------------- ---------------------------------------- 
+model/c-model: macc=17,798/18,091 +293(+1.6%) weights=60,244/61,016 +772(+1.3%) activations=--/4,320 io=--/0
+
+
+
+Generated C-graph summary
+------------------------------------------------------------------------------------------------------------------------
+model name            : conf_decmatvec_combined_n64_xcubeai
+c-name                : conf_decmatvec_combined_n64
+c-node #              : 38
+c-array #             : 63
+activations size      : 4320 (1 segment)
+weights size          : 61016 (1 segment)
+macc                  : 18091
+inputs                : ['frame_output', 'context_win_output', 'v_plif_output', 'mem_readout_output', 'ola_tail_output']
+outputs               : ['enhanced_output', 'new_context_win_Transpose_1_output', 'new_v_plif_output', 'new_mem_readout_output', 'new_ola_tail_output']
+
+C-Arrays (63)
+------ ------------------------------------------------------------------- ------------ ------------------------- ------------- --------- 
+c_id   name (*_array)                                                      item/size    domain/mem-pool           c-type        comment   
+------ ------------------------------------------------------------------- ------------ ------------------------- ------------- --------- 
+0      Transpose_token_3_out0_output                                       1/4          activations/**default**   float                   
+1      _Add_output_0_output                                                64/256       activations/**default**   float                   
+2      _Concat_output_0_output                                             320/1280     activations/**default**   float                   
+3      _Constant_1_output_0_3D                                             1/4          weights/weights           const float             
+4      _Mul_2_output_0_output                                              64/256       activations/**default**   float                   
+5      _Mul_2_output_0_scale                                               64/256       weights/weights           const float             
+6      _Mul_3_output_0_output                                              64/256       activations/**default**   float                   
+7      _Mul_output_0_bias                                                  64/256       weights/weights           const float             
+8      _Mul_output_0_output                                                64/256       activations/**default**   float                   
+9      _Mul_output_0_scale                                                 64/256       weights/weights           const float             
+10     _Slice_1_output_0_output                                            40/160       activations/**default**   float                   
+11     _Sub_1_output_0_output                                              64/256       activations/**default**   float                   
+12     _Sub_2_output_0_output                                              64/256       activations/**default**   float                   
+13     _Sub_3_output_0_output                                              64/256       activations/**default**   float                   
+14     _Sub_4_output_0_output                                              64/256       activations/**default**   float                   
+15     _dconv_Conv_output_0_bias                                           64/256       weights/weights           const float             
+16     _dconv_Conv_output_0_output                                         64/256       activations/**default**   float                   
+17     _dconv_Conv_output_0_weights                                        320/1280     weights/weights           const float             
+18     _dec_linear_Gemm_output_0_bias                                      80/320       weights/weights           const float             
+19     _dec_linear_Gemm_output_0_output                                    80/320       activations/**default**   float                   
+20     _dec_linear_Gemm_output_0_weights                                   5120/20480   weights/weights           const float             
+21     _dense_Gemm_output_0_bias                                           64/256       weights/weights           const float             
+22     _dense_Gemm_output_0_output                                         64/256       activations/**default**   float                   
+23     _dense_Gemm_output_0_weights                                        4096/16384   weights/weights           const float             
+24     _encoder_1d_Conv_output_0_bias                                      64/256       weights/weights           const float             
+25     _encoder_1d_Conv_output_0_output                                    64/256       activations/**default**   float                   
+26     _encoder_1d_Conv_output_0_scratch0                                  80/320       activations/**default**   float                   
+27     _encoder_1d_Conv_output_0_weights                                   5120/20480   weights/weights           const float             
+28     _encoder_act_Relu_output_0_output                                   64/256       activations/**default**   float                   
+29     _ln_Add_output_0_bias                                               1/4          weights/weights           const float             
+30     _ln_Add_output_0_output                                             1/4          activations/**default**   float                   
+31     _ln_Add_output_0_scale                                              1/4          weights/weights           const float             
+32     _ln_Constant_output_0_3D                                            1/4          weights/weights           const float             
+33     _ln_Div_output                                                      64/256       activations/**default**   float                   
+34     _ln_Mul_bias                                                        64/256       weights/weights           const float             
+35     _ln_Mul_output                                                      64/256       activations/**default**   float                   
+36     _ln_Mul_scale                                                       64/256       weights/weights           const float             
+37     _ln_Pow_output                                                      64/256       activations/**default**   float                   
+38     _ln_ReduceMean_1_Mul_output                                         1/4          activations/**default**   float                   
+39     _ln_ReduceMean_1_output_0_output                                    1/4          activations/**default**   float                   
+40     _ln_ReduceMean_1_output                                             1/4          activations/**default**   float                   
+41     _ln_ReduceMean_Mul_bias                                             1/4          weights/weights           const float             
+42     _ln_ReduceMean_Mul_output                                           1/4          activations/**default**   float                   
+43     _ln_ReduceMean_Mul_scale                                            1/4          weights/weights           const float             
+44     _ln_ReduceMean_output                                               1/4          activations/**default**   float                   
+45     _ln_Sqrt_output_0_output                                            1/4          activations/**default**   float                   
+46     _ln_Sub_output                                                      64/256       activations/**default**   float                   
+47     _mask_act_Sigmoid_output_0_output                                   64/256       activations/**default**   float                   
+48     _nobool_2__surrogate_function_GreaterOrEqual_output_0_sign_output   64/256       activations/**default**   float                   
+49     _nobool_3__surrogate_function_GreaterOrEqual_output_0_relu_output   64/256       activations/**default**   float                   
+50     context_win_Transpose_output                                        256/1024     activations/**default**   float                   
+51     context_win_output                                                  256/1024     activations/**default**   float         /input    
+52     enhanced_output                                                     40/160       activations/**default**   float         /output   
+53     frame_output                                                        80/320       activations/**default**   float         /input    
+54     mem_readout_output                                                  64/256       activations/**default**   float         /input    
+55     new_context_win_Transpose_1_output                                  256/1024     activations/**default**   float         /output   
+56     new_context_win_output                                              256/1024     activations/**default**   float                   
+57     new_mem_readout_output                                              64/256       activations/**default**   float         /output   
+58     new_ola_tail_output                                                 40/160       activations/**default**   float         /output   
+59     new_v_plif_output                                                   64/256       activations/**default**   float         /output   
+60     ola_tail_output                                                     40/160       activations/**default**   float         /input    
+61     v_plif_Transpose_output                                             64/256       activations/**default**   float                   
+62     v_plif_output                                                       64/256       activations/**default**   float         /input    
+------ ------------------------------------------------------------------- ------------ ------------------------- ------------- --------- 
+
+C-Layers (38)
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+c_id   name (*_layer)                                               id   layer_type      macc   rom     tensors                                                                shape (array id)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+0      v_plif_Transpose                                             2    Transpose       32     0       I: v_plif_output                                                       f32(1x64x1) (62)      
+                                                                                                        O: v_plif_Transpose_output                                             f32(1x1x64) (61)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+1      context_win_Transpose                                        2    Transpose       128    0       I: context_win_output                                                  f32(1x64x4) (51)      
+                                                                                                        O: context_win_Transpose_output                                        f32(1x4x64) (50)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+2      _encoder_1d_Conv_output_0                                    2    Conv2D          5184   20736   I: frame_output                                                        f32(1x80) (53)        
+                                                                                                        S: _encoder_1d_Conv_output_0_scratch0                                                        
+                                                                                                        W: _encoder_1d_Conv_output_0_weights                                   f32(64x80x1x1) (27)   
+                                                                                                        W: _encoder_1d_Conv_output_0_bias                                      f32(64) (24)          
+                                                                                                        O: _encoder_1d_Conv_output_0_output                                    f32(1x1x64) (25)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+3      _encoder_act_Relu_output_0                                   3    Nonlinearity    64     0       I: _encoder_1d_Conv_output_0_output                                    f32(1x1x64) (25)      
+                                                                                                        O: _encoder_act_Relu_output_0_output                                   f32(1x1x64) (28)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+4      _ln_ReduceMean                                               4    Reduce          64     0       I: _encoder_act_Relu_output_0_output                                   f32(1x1x64) (28)      
+                                                                                                        O: _ln_ReduceMean_output                                               f32(1x1x1) (44)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+5      _ln_ReduceMean_Mul                                           4    ScaleBias       2      8       I: _ln_ReduceMean_output                                               f32(1x1x1) (44)       
+                                                                                                        W: _ln_ReduceMean_Mul_scale                                            f32(1) (43)           
+                                                                                                        W: _ln_ReduceMean_Mul_bias                                             f32(1) (41)           
+                                                                                                        O: _ln_ReduceMean_Mul_output                                           f32(1x1x1) (42)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+6      _ln_Sub                                                      5    Eltwise/sub     64     0       I: _encoder_act_Relu_output_0_output                                   f32(1x1x64) (28)      
+                                                                                                        I: _ln_ReduceMean_Mul_output                                           f32(1x1x64) (28)      
+                                                                                                        O: _ln_Sub_output                                                      f32(1x1x64) (46)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+7      _ln_Pow                                                      6    Eltwise/pow     640    4       I: _ln_Sub_output                                                      f32(1x1x64) (46)      
+                                                                                                        W: _ln_Constant_output_0_3D                                            f32(1x1) (32)         
+                                                                                                        O: _ln_Pow_output                                                      f32(1x1x64) (37)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+8      _ln_ReduceMean_1                                             7    Reduce          64     0       I: _ln_Pow_output                                                      f32(1x1x64) (37)      
+                                                                                                        O: _ln_ReduceMean_1_output                                             f32(1x1x1) (40)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+9      _ln_ReduceMean_1_Mul                                         7    ScaleBias       2      8       I: _ln_ReduceMean_1_output                                             f32(1x1x1) (40)       
+                                                                                                        W: _ln_ReduceMean_Mul_scale                                            f32(1) (43)           
+                                                                                                        W: _ln_ReduceMean_Mul_bias                                             f32(1) (41)           
+                                                                                                        O: _ln_ReduceMean_1_Mul_output                                         f32(1x1x1) (38)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+10     _ln_ReduceMean_1_output_0                                    8    Transpose       0      0       I: _ln_ReduceMean_1_Mul_output                                         f32(1x1x1) (38)       
+                                                                                                        O: _ln_ReduceMean_1_output_0_output                                    f32(1x1x1) (39)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+11     _ln_Add_output_0                                             9    ScaleBias       2      8       I: _ln_ReduceMean_1_output_0_output                                    f32(1x1x1) (39)       
+                                                                                                        W: _ln_Add_output_0_scale                                              f32(1) (31)           
+                                                                                                        W: _ln_Add_output_0_bias                                               f32(1) (29)           
+                                                                                                        O: _ln_Add_output_0_output                                             f32(1x1x1) (30)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+12     _ln_Sqrt_output_0                                            10   Nonlinearity    12     0       I: _ln_Add_output_0_output                                             f32(1x1x1) (30)       
+                                                                                                        O: _ln_Sqrt_output_0_output                                            f32(1x1x1) (45)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+13     Transpose_token_3_out0                                       11   Transpose       0      0       I: _ln_Sqrt_output_0_output                                            f32(1x1x1) (45)       
+                                                                                                        O: Transpose_token_3_out0_output                                       f32(1x1x1) (0)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+14     _ln_Div                                                      12   Eltwise/div     320    0       I: _ln_Sub_output                                                      f32(1x1x64) (46)      
+                                                                                                        I: Transpose_token_3_out0_output                                       f32(1x1x64) (46)      
+                                                                                                        O: _ln_Div_output                                                      f32(1x1x64) (33)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+15     _ln_Mul                                                      14   ScaleBias       128    512     I: _ln_Div_output                                                      f32(1x1x64) (33)      
+                                                                                                        W: _ln_Mul_scale                                                       f32(64) (36)          
+                                                                                                        W: _ln_Mul_bias                                                        f32(64) (34)          
+                                                                                                        O: _ln_Mul_output                                                      f32(1x1x64) (35)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+16     _Concat_output_0                                             15   Concat          0      0       I: context_win_Transpose_output                                        f32(1x4x64) (50)      
+                                                                                                        I: _ln_Mul_output                                                      f32(1x4x64) (50)      
+                                                                                                        O: _Concat_output_0_output                                             f32(1x5x64) (2)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+17     new_context_win                                              17   Slice           0      0       I: _Concat_output_0_output                                             f32(1x5x64) (2)       
+                                                                                                        O: new_context_win_output                                              f32(1x4x64) (56)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+18     new_context_win_Transpose_1                                  1    Transpose       128    0       I: new_context_win_output                                              f32(1x4x64) (56)      
+                                                                                                        O: new_context_win_Transpose_1_output                                  f32(1x64x4) (55)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+19     _dconv_Conv_output_0                                         16   Conv2D          384    1536    I: _Concat_output_0_output                                             f32(1x5x64) (2)       
+                                                                                                        W: _dconv_Conv_output_0_weights                                        f32(64x5x1x1) (17)    
+                                                                                                        W: _dconv_Conv_output_0_bias                                           f32(64) (15)          
+                                                                                                        O: _dconv_Conv_output_0_output                                         f32(1x1x64) (16)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+20     _Sub_1_output_0                                              18   Eltwise/sub     64     0       I: _dconv_Conv_output_0_output                                         f32(1x1x64) (16)      
+                                                                                                        I: v_plif_Transpose_output                                             f32(1x1x64) (16)      
+                                                                                                        O: _Sub_1_output_0_output                                              f32(1x1x64) (11)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+21     _Mul_output_0                                                19   ScaleBias       128    512     I: _Sub_1_output_0_output                                              f32(1x1x64) (11)      
+                                                                                                        W: _Mul_output_0_scale                                                 f32(64) (9)           
+                                                                                                        W: _Mul_output_0_bias                                                  f32(64) (7)           
+                                                                                                        O: _Mul_output_0_output                                                f32(1x1x64) (8)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+22     _Add_output_0                                                20   Eltwise/add     64     0       I: v_plif_Transpose_output                                             f32(1x1x64) (61)      
+                                                                                                        I: _Mul_output_0_output                                                f32(1x1x64) (61)      
+                                                                                                        O: _Add_output_0_output                                                f32(1x1x64) (1)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+23     _Sub_2_output_0                                              21   Eltwise/sub     64     4       I: _Add_output_0_output                                                f32(1x1x64) (1)       
+                                                                                                        W: _Constant_1_output_0_3D                                             f32(1x1) (3)          
+                                                                                                        O: _Sub_2_output_0_output                                              f32(1x1x64) (12)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+24     _nobool_2__surrogate_function_GreaterOrEqual_output_0_sign   22   Nonlinearity    64     0       I: _Sub_2_output_0_output                                              f32(1x1x64) (12)      
+                                                                                                        O: _nobool_2__surrogate_function_GreaterOrEqual_output_0_sign_output   f32(1x1x64) (48)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+25     _nobool_3__surrogate_function_GreaterOrEqual_output_0_relu   23   Nonlinearity    64     0       I: _nobool_2__surrogate_function_GreaterOrEqual_output_0_sign_output   f32(1x1x64) (48)      
+                                                                                                        O: _nobool_3__surrogate_function_GreaterOrEqual_output_0_relu_output   f32(1x1x64) (49)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+26     _dense_Gemm_output_0                                         26   Dense           4160   16640   I: _nobool_3__surrogate_function_GreaterOrEqual_output_0_relu_output   f32(1x1x64) (49)      
+                                                                                                        W: _dense_Gemm_output_0_weights                                        f32(64x64) (23)       
+                                                                                                        W: _dense_Gemm_output_0_bias                                           f32(64) (21)          
+                                                                                                        O: _dense_Gemm_output_0_output                                         f32(1x64) (22)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+27     _Sub_4_output_0                                              28   Eltwise/sub     64     0       I: _dense_Gemm_output_0_output                                         f32(1x64) (22)        
+                                                                                                        I: mem_readout_output                                                  f32(1x64) (22)        
+                                                                                                        O: _Sub_4_output_0_output                                              f32(1x64) (14)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+28     _Mul_2_output_0                                              29   ScaleBias       128    512     I: _Sub_4_output_0_output                                              f32(1x64) (14)        
+                                                                                                        W: _Mul_2_output_0_scale                                               f32(64) (5)           
+                                                                                                        W: _Mul_output_0_bias                                                  f32(64) (7)           
+                                                                                                        O: _Mul_2_output_0_output                                              f32(1x64) (4)         
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+29     new_mem_readout                                              30   Eltwise/add     64     0       I: mem_readout_output                                                  f32(1x64) (54)        
+                                                                                                        I: _Mul_2_output_0_output                                              f32(1x64) (54)        
+                                                                                                        O: new_mem_readout_output                                              f32(1x64) (57)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+30     _mask_act_Sigmoid_output_0                                   32   Nonlinearity    640    0       I: new_mem_readout_output                                              f32(1x64) (57)        
+                                                                                                        O: _mask_act_Sigmoid_output_0_output                                   f32(1x1x64) (47)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+31     _Mul_3_output_0                                              33   Eltwise/mul     64     0       I: _encoder_act_Relu_output_0_output                                   f32(1x1x64) (28)      
+                                                                                                        I: _mask_act_Sigmoid_output_0_output                                   f32(1x1x64) (28)      
+                                                                                                        O: _Mul_3_output_0_output                                              f32(1x1x64) (6)       
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+32     _dec_linear_Gemm_output_0                                    35   Dense           5200   20800   I: _Mul_3_output_0_output                                              f32(1x1x64) (6)       
+                                                                                                        W: _dec_linear_Gemm_output_0_weights                                   f32(80x64) (20)       
+                                                                                                        W: _dec_linear_Gemm_output_0_bias                                      f32(80) (18)          
+                                                                                                        O: _dec_linear_Gemm_output_0_output                                    f32(1x80) (19)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+33     new_ola_tail                                                 37   Slice           0      0       I: _dec_linear_Gemm_output_0_output                                    f32(1x80) (19)        
+                                                                                                        O: new_ola_tail_output                                                 f32(1x40) (58)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+34     _Slice_1_output_0                                            36   Slice           0      0       I: _dec_linear_Gemm_output_0_output                                    f32(1x80) (19)        
+                                                                                                        O: _Slice_1_output_0_output                                            f32(1x40) (10)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+35     enhanced                                                     38   Eltwise/add     40     0       I: ola_tail_output                                                     f32(1x40) (60)        
+                                                                                                        I: _Slice_1_output_0_output                                            f32(1x40) (60)        
+                                                                                                        O: enhanced_output                                                     f32(1x40) (52)        
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+36     _Sub_3_output_0                                              25   Eltwise/sub     1      4       I: _nobool_3__surrogate_function_GreaterOrEqual_output_0_relu_output   f32(1x1x64) (49)      
+                                                                                                        W: _Constant_1_output_0_3D                                             f32(1x1) (3)          
+                                                                                                        O: _Sub_3_output_0_output                                              f32(1x1x64) (13)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+37     new_v_plif                                                   27   Eltwise/mul     64     0       I: _Add_output_0_output                                                f32(1x1x64) (1)       
+                                                                                                        I: _Sub_3_output_0_output                                              f32(1x1x64) (1)       
+                                                                                                        O: new_v_plif_output                                                   f32(1x1x64) (59)      
+------ ------------------------------------------------------------ ---- --------------- ------ ------- ---------------------------------------------------------------------- --------------------- 
+
+
+
+Number of operations per c-layer
+------- ------ ----------------------------------------------- -------- -------------- 
+c_id    m_id   name (type)                                          #op           type 
+------- ------ ----------------------------------------------- -------- -------------- 
+0       2      v_plif_Transpose (Transpose)                          32   smul_f32_f32 
+1       2      context_win_Transpose (Transpose)                    128   smul_f32_f32 
+2       2      _encoder_1d_Conv_output_0 (Conv2D)                 5,184   smul_f32_f32 
+3       3      _encoder_act_Relu_output_0 (Nonlinearity)             64     op_f32_f32 
+4       4      _ln_ReduceMean (Reduce)                               64   smul_f32_f32 
+5       4      _ln_ReduceMean_Mul (ScaleBias)                         2   smul_f32_f32 
+6       5      _ln_Sub (Eltwise/sub)                                 64     op_f32_f32 
+7       6      _ln_Pow (Eltwise/pow)                                640     op_f32_f32 
+8       7      _ln_ReduceMean_1 (Reduce)                             64   smul_f32_f32 
+9       7      _ln_ReduceMean_1_Mul (ScaleBias)                       2   smul_f32_f32 
+10      8      _ln_ReduceMean_1_output_0 (Transpose)                  0   smul_f32_f32 
+11      9      _ln_Add_output_0 (ScaleBias)                           2   smul_f32_f32 
+12      10     _ln_Sqrt_output_0 (Nonlinearity)                      12     op_f32_f32 
+13      11     Transpose_token_3_out0 (Transpose)                     0   smul_f32_f32 
+14      12     _ln_Div (Eltwise/div)                                320     op_f32_f32 
+15      14     _ln_Mul (ScaleBias)                                  128   smul_f32_f32 
+16      15     _Concat_output_0 (Concat)                              0   smul_f32_f32 
+17      17     new_context_win (Slice)                                0   smul_f32_f32 
+18      1      new_context_win_Transpose_1 (Transpose)              128   smul_f32_f32 
+19      16     _dconv_Conv_output_0 (Conv2D)                        384   smul_f32_f32 
+20      18     _Sub_1_output_0 (Eltwise/sub)                         64     op_f32_f32 
+21      19     _Mul_output_0 (ScaleBias)                            128   smul_f32_f32 
+22      20     _Add_output_0 (Eltwise/add)                           64     op_f32_f32 
+23      21     _Sub_2_output_0 (Eltwise/sub)                         64     op_f32_f32 
+24      22     _nobool_2__surroga..put_0_sign (Nonlinearity)         64     op_f32_f32 
+25      23     _nobool_3__surroga..put_0_relu (Nonlinearity)         64     op_f32_f32 
+26      26     _dense_Gemm_output_0 (Dense)                       4,160   smul_f32_f32 
+27      28     _Sub_4_output_0 (Eltwise/sub)                         64     op_f32_f32 
+28      29     _Mul_2_output_0 (ScaleBias)                          128   smul_f32_f32 
+29      30     new_mem_readout (Eltwise/add)                         64     op_f32_f32 
+30      32     _mask_act_Sigmoid_output_0 (Nonlinearity)            640     op_f32_f32 
+31      33     _Mul_3_output_0 (Eltwise/mul)                         64     op_f32_f32 
+32      35     _dec_linear_Gemm_output_0 (Dense)                  5,200   smul_f32_f32 
+33      37     new_ola_tail (Slice)                                   0   smul_f32_f32 
+34      36     _Slice_1_output_0 (Slice)                              0   smul_f32_f32 
+35      38     enhanced (Eltwise/add)                                40     op_f32_f32 
+36      25     _Sub_3_output_0 (Eltwise/sub)                          1     op_f32_f32 
+37      27     new_v_plif (Eltwise/mul)                              64     op_f32_f32 
+------- ------ ----------------------------------------------- -------- -------------- 
+total                                                            18,091 
+
+Number of operation types
+---------------- -------- ----------- 
+operation type          #           % 
+---------------- -------- ----------- 
+smul_f32_f32       15,734       87.0% 
+op_f32_f32          2,357       13.0% 
+
+Complexity report (model)
+------ ------------------------------------------ ------------------------- ------------------------- ----------- 
+m_id   name                                       c_macc                    c_rom                     c_id        
+------ ------------------------------------------ ------------------------- ------------------------- ----------- 
+6      _ln_Constant_output_0                      ||                 3.5%   |                  0.0%   [7]         
+9      _ln_Constant_1_output_0                    |                  0.0%   |                  0.0%   [11]        
+1      ln_bias                                    |                  0.7%   |                  0.0%   [18]        
+19     _Sigmoid_output_0                          |                  0.7%   |                  0.8%   [21]        
+2      _Constant_1_output_0                       ||||||||||||||||  29.5%   |||||||||||||||   34.0%   [0, 1, 2]   
+26     srnn_readout_dense_weight                  ||||||||||||      23.0%   |||||||||||||     27.3%   [26]        
+35     dec_linear_weight                          |||||||||||||||   28.7%   ||||||||||||||||  34.1%   [32]        
+3      _encoder_act_Relu_output_0                 |                  0.4%   |                  0.0%   [3]         
+4      _ln_ReduceMean                             |                  0.4%   |                  0.0%   [4, 5]      
+5      _ln_Sub                                    |                  0.4%   |                  0.0%   [6]         
+7      _ln_ReduceMean_1                           |                  0.4%   |                  0.0%   [8, 9]      
+8      _ln_ReduceMean_1_output_0                  |                  0.0%   |                  0.0%   [10]        
+10     _ln_Sqrt_output_0                          |                  0.1%   |                  0.0%   [12]        
+11     Transpose_token_3_out0                     |                  0.0%   |                  0.0%   [13]        
+12     _ln_Div                                    |                  1.8%   |                  0.0%   [14]        
+14     _ln_Add_1                                  |                  0.7%   |                  0.8%   [15]        
+15     _Concat_output_0                           |                  0.0%   |                  0.0%   [16]        
+16     _dconv_Conv_output_0                       ||                 2.1%   ||                 2.5%   [19]        
+17     new_context_win                            |                  0.0%   |                  0.0%   [17]        
+18     _Sub_1_output_0                            |                  0.4%   |                  0.0%   [20]        
+20     _Add_output_0                              |                  0.4%   |                  0.0%   [22]        
+21     _Sub_2_output_0                            |                  0.4%   |                  0.0%   [23]        
+22     _nobool_2__surrogate_functio..put_0_sign   |                  0.4%   |                  0.0%   [24]        
+23     _nobool_3__surrogate_functio..put_0_relu   |                  0.4%   |                  0.0%   [25]        
+25     _Sub_3_output_0                            |                  0.0%   |                  0.0%   [36]        
+27     new_v_plif                                 |                  0.4%   |                  0.0%   [37]        
+28     _Sub_4_output_0                            |                  0.4%   |                  0.0%   [27]        
+29     _Mul_2_output_0                            |                  0.7%   |                  0.8%   [28]        
+30     new_mem_readout                            |                  0.4%   |                  0.0%   [29]        
+32     _mask_act_Sigmoid_output_0                 ||                 3.5%   |                  0.0%   [30]        
+33     _Mul_3_output_0                            |                  0.4%   |                  0.0%   [31]        
+36     _Slice_1_output_0                          |                  0.0%   |                  0.0%   [34]        
+37     new_ola_tail                               |                  0.0%   |                  0.0%   [33]        
+38     enhanced                                   |                  0.2%   |                  0.0%   [35]        
+------ ------------------------------------------ ------------------------- ------------------------- ----------- 
+macc=18,091 weights=61,016 act=4,320 ram_io=0

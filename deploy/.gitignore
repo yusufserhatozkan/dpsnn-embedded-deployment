@@ -1,0 +1,4 @@
+test_audio/*.bin
+test_audio/*.wav
+conf_ref_*/*.bin
+conf_ref_*/*.wav

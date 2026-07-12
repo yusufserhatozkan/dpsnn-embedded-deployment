@@ -1,0 +1,21 @@
+
+=== Campaign run 2026-06-11 00:48 ===
+conf_baseline_n64  [conf_baseline_n64] TIMING:2.715 ms/frame RTF:1.086
+conf_nobin_n64  [conf_nobin_n64] TIMING:2.683 ms/frame RTF:1.073
+conf_noptwise_n64  [conf_noptwise_n64] TIMING:2.282 ms/frame RTF:0.913
+conf_plifro_n64  [conf_plifro_n64] TIMING:2.723 ms/frame RTF:1.089
+conf_combined_n64  [conf_combined_n64] TIMING:2.253 ms/frame RTF:0.901
+conf_decmatvec_n64  [conf_decmatvec_n64] TIMING:2.564 ms/frame RTF:1.025
+conf_decmatvec_combined_n64  [conf_decmatvec_combined_n64] TIMING:2.101 ms/frame RTF:0.840
+conf_decmatvec_n128  [conf_decmatvec_n128] TIMING:5.991 ms/frame RTF:2.396
+
+=== Campaign run 2026-06-11 01:17 ===
+
+=== Campaign run 2026-06-11 01:17 ===
+conf_noptwise_n64  [conf_noptwise_n64] TIMING:2.282 ms/frame RTF:0.913
+conf_plifro_n64  [conf_plifro_n64] TIMING:2.723 ms/frame RTF:1.089
+conf_decmatvec_combined_n64  [conf_decmatvec_combined_n64] TIMING:2.101 ms/frame RTF:0.840
+
+=== Campaign run 2026-06-12 05:47 ===
+conf_exp12_n64  [conf_exp12_n64] TIMING:2.247 ms/frame RTF:0.899
+conf_exp12_decmatvec_n64  [conf_exp12_decmatvec_n64] TIMING:2.097 ms/frame RTF:0.839

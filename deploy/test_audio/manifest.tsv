@@ -1,0 +1,4 @@
+idx	file_id	length	noisy_bin	clean_bin
+0	p232_001	27861	deploy/test_audio\0000_noisy.bin	deploy/test_audio\0000_clean.bin
+1	p232_002	43444	deploy/test_audio\0001_noisy.bin	deploy/test_audio\0001_clean.bin
+2	p232_003	114958	deploy/test_audio\0002_noisy.bin	deploy/test_audio\0002_clean.bin

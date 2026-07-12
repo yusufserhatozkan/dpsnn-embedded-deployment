@@ -1,0 +1,6 @@
+utterance:      p232_009
+n_frames:       1662
+mcu_si_snr:     15.6614 dB
+ref_si_snr:     15.6619 dB
+delta:          -0.0005 dB
+timing:         TIMING:5.991 ms/frame RTF:2.396

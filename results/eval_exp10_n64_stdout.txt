@@ -1,0 +1,41 @@
+context_step: 4
+time steps: 399
+gradient type:  MG
+Loading checkpoint: egs/voicebank/lightning_logs/version_5/checkpoints/epoch=92-val_loss=82.9734-val_sisnr=-17.0281.ckpt
+input_dim: 16160
+context_dim: 160
+Model: input_dim=16160, L=80, stride=40, context_step=4, time_steps=399
+Evaluating on data/results/save/test.hdf5 ...
+  [1/824]
+  [50/824]
+  [100/824]
+  [150/824]
+  [200/824]
+  [250/824]
+  [300/824]
+  [350/824]
+  [400/824]
+  [450/824]
+  [500/824]
+  [550/824]
+  [600/824]
+  [650/824]
+  [700/824]
+  [750/824]
+  [800/824]
+
+=======================================================
+  Streaming eval  (824 utterances)
+=======================================================
+Metric                      Noisy   Enhanced
+--------------------------------------------
+SI-SNR (dB)                  8.44      16.70
+PESQ (wb)                   1.971      2.022
+STOI                        0.921      0.922
+Comp PESQ                   1.971      2.022
+Comp OVRL                   2.637      2.481
+Comp SIG                    3.357      2.993
+Comp BAK                    2.445      2.080
+=======================================================
+
+Metrics saved -> results/eval_exp10_n64_streaming.txt
